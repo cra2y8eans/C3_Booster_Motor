@@ -1,18 +1,26 @@
-#include <Arduino.h>
+/***********************************************************************************************************************************************************
 
-// put function declarations here:
-int myFunction(int, int);
+ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
+
+        使用TMC2209驱动板驱动步进电机。
+        motor部分作为接收机，通过ESP NOW接收来自脚控的控制信号。
+
+
+************************************************************************************************************************************************************/
+
+#include <Arduino.h>
+#include "my_analog_hat.h"
+#include <WiFi.h>
+#include <esp_now.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <AccelStepper.h>
+
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-}
 
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
 }
