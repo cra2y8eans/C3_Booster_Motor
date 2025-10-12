@@ -15,6 +15,7 @@ ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#define DEBUG 0
 #define ONFOOT 4
 #define ONHAND 5
 #define THROTTLE 6
@@ -63,6 +64,55 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
   memcpy(&footPad, incomingData, sizeof(footPad));
 }
 
+// ESP NOW
+void esp_now_connect() {
+  WiFi.mode(WIFI_STA); // 设置wifi为STA模式
+  WiFi.begin();
+  esp_now_init();                       // 初始化ESP NOW
+  esp_now_register_send_cb(OnDataSent); // 注册发送成功的回调函数
+  esp_now_register_recv_cb(OnDataRecv); // 注册接受数据后的回调函数
+
+  // 注册通信频道
+  memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
+  peerInfo.channel = 1;                          // 设置通信频道
+  esp_now_add_peer(&peerInfo);                   // 添加通信对象
+
+  // 如果初始化失败则重连
+  while (esp_now_init() != ESP_OK) {
+#if DEBUG
+    Serial.println("ESP NOW 初始化失败，正在重连...");
+#endif
+    // 报警
+    digitalWrite(BUZZER, HIGH);
+    delay(1000);
+    digitalWrite(BUZZER, LOW);
+    delay(1000);
+    // 重连
+    esp_now_init();                                // 初始化ESP NOW
+    esp_now_register_send_cb(OnDataSent);          // 注册发送成功的回调函数
+    esp_now_register_recv_cb(OnDataRecv);          // 注册接受数据后的回调函数
+    memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
+    peerInfo.channel = 1;                          // 设置通信频道
+    esp_now_add_peer(&peerInfo);                   // 添加通信对象
+  }
+// 初始化成功，发送测试数据
+#if DEBUG
+  Serial.println("ESP NOW 初始化成功");
+#endif
+  digitalWrite(BUZZER, HIGH);
+  delay(100);
+  digitalWrite(BUZZER, LOW);
+  delay(80);
+  digitalWrite(BUZZER, HIGH);
+  delay(100);
+  digitalWrite(BUZZER, LOW);
+  delay(80);
+  digitalWrite(BUZZER, HIGH);
+  delay(100);
+  digitalWrite(BUZZER, LOW);
+  delay(80);
+}
+
 // 蜂鸣器
 void buzzer(void* pt) { }
 
@@ -71,12 +121,15 @@ void modeChange(void* pt) {
   TickType_t       xLastWakeTime = xTaskGetTickCount();
   const TickType_t xPeriod       = pdMS_TO_TICKS(50); // 频率 20Hz → 周期为 1/20 = 0.05 秒 = 50 毫秒
   while (1) {
-    if (digitalRead(ONFOOT) == HIGH && digitalRead(ONHAND) == HIGH) {
+    if (digitalRead(ONFOOT) == HIGH && digitalRead(ONHAND) == HIGH) { // 中间档位：巡航模式
       contorlMode = 2;
-    } else if (digitalRead(ONFOOT) == HIGH && digitalRead(ONHAND) == LOW) {
+      // LED指示灯
+    } else if (digitalRead(ONFOOT) == HIGH && digitalRead(ONHAND) == LOW) { // 右边档位：手动模式
       contorlMode = 1;
-    } else if (digitalRead(ONFOOT) == LOW && digitalRead(ONHAND) == HIGH) {
+      // LED指示灯
+    } else if (digitalRead(ONFOOT) == LOW && digitalRead(ONHAND) == HIGH) { // 左边档位：脚控模式
       contorlMode = 3;
+      // LED指示灯
     } else {
       contorlMode = 0;
     }
@@ -101,7 +154,7 @@ void motor(void* pt) {
       digitalWrite(MOS_STEP, LOW);
       digitalWrite(THROTTLE, LOW);
       break;
-    case 1: // 脚控模式
+    case 3: // 脚控模式
             // 使能TMC2209，导通MOS管
       digitalWrite(TMC2209_EN, LOW);
       digitalWrite(MOS_STEP, HIGH);
@@ -171,7 +224,7 @@ void motor(void* pt) {
         delayMicroseconds(stepSpeed);
       }
       break;
-    case 3: // 手控模式
+    case 1: // 手控模式
       digitalWrite(THROTTLE, HIGH);
       // 关闭步进电机控制
       digitalWrite(TMC2209_EN, HIGH);
@@ -187,6 +240,7 @@ void motor(void* pt) {
 
 void setup() {
   Serial.begin(115200);
+  esp_now_connect();
 
   pinMode(ONFOOT, INPUT_PULLUP);
   pinMode(ONHAND, INPUT_PULLUP);
@@ -201,21 +255,10 @@ void setup() {
 
   pinMode(WS2812_PIN, OUTPUT);
 
-  WiFi.mode(WIFI_STA); // 设置wifi为STA模式
-  WiFi.begin();
-  esp_now_init();                       // 初始化ESP NOW
-  esp_now_register_send_cb(OnDataSent); // 注册发送成功的回调函数
-  esp_now_register_recv_cb(OnDataRecv); // 注册接受数据后的回调函数
+  digitalWrite(THROTTLE, LOW);
+  digitalWrite(MOS_STEP, LOW);
+  digitalWrite(TMC2209_EN, HIGH);
 
-  // 注册通信频道
-  memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
-  peerInfo.channel = 1;                          // 设置通信频道
-  esp_now_add_peer(&peerInfo);                   // 添加通信对象
-
-  if () {
-  }
-
-  // 创建freertos任务
   xTaskCreate(buzzer, "buzzer", 1024 * 1, NULL, 1, NULL);
   xTaskCreate(modeChange, "modeChange", 1024 * 1, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 2, NULL, 1, NULL);
