@@ -9,6 +9,7 @@ ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
 ************************************************************************************************************************************************************/
 
 #include "my_analog_hat.h"
+#include <Adafruit_NeoPixel.h>
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
@@ -27,6 +28,12 @@ ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
 #define WS2812_PIN 3
 
 uint8_t contorlMode = 0;
+enum Mode {
+  HAND_MODE,
+  FOOT_MODE,
+  CRUISE_MODE,
+};
+Mode previousMode, currentMode, mode;
 
 uint8_t FootPadAddress[6];
 // uint8_t crazybeans[]={};
@@ -47,6 +54,8 @@ struct FootPad {
 };
 
 FootPad footPad;
+
+Adafruit_NeoPixel myRGB(1, WS2812_PIN, NEO_GRB + NEO_KHZ800);
 
 /*----------------------------------------------- 自定义函数 -----------------------------------------------*/
 
@@ -113,25 +122,62 @@ void esp_now_connect() {
   delay(80);
 }
 
-// 蜂鸣器
-void buzzer(void* pt) { }
+/**  蜂鸣器
+ * @brief     蜂鸣器通用函数
+ * @param     times: 鸣叫次数
+ * @param     duration: 持续时间，单位毫秒
+ * @param     interval: 每次鸣叫的间隔时间，单位毫秒
+ */
+void buzzer(uint8_t times, int duration, int interval) {
+  for (int i = 0; i < times; i++) {
+    digitalWrite(BUZZER, HIGH);
+    vTaskDelay(duration / portTICK_PERIOD_MS);
+    digitalWrite(BUZZER, LOW);
+    vTaskDelay(interval / portTICK_PERIOD_MS);
+  }
+}
 
-// 模式切换
+/**
+ * @brief     模式切换判断
+ */
 void modeChange(void* pt) {
   TickType_t       xLastWakeTime = xTaskGetTickCount();
   const TickType_t xPeriod       = pdMS_TO_TICKS(50); // 频率 20Hz → 周期为 1/20 = 0.05 秒 = 50 毫秒
   while (1) {
-    if (digitalRead(ONFOOT) == HIGH && digitalRead(ONHAND) == HIGH) { // 中间档位：巡航模式
-      contorlMode = 2;
-      // LED指示灯
-    } else if (digitalRead(ONFOOT) == HIGH && digitalRead(ONHAND) == LOW) { // 右边档位：手动模式
-      contorlMode = 1;
-      // LED指示灯
-    } else if (digitalRead(ONFOOT) == LOW && digitalRead(ONHAND) == HIGH) { // 左边档位：脚控模式
-      contorlMode = 3;
-      // LED指示灯
-    } else {
-      contorlMode = 0;
+    bool statusHand = digitalRead(ONHAND);
+    bool statusFoot = digitalRead(ONFOOT);
+    // 两个都是高电平，开关在中间档，巡航模式
+    if (statusHand == HIGH && statusFoot == HIGH) {   // 如果引脚电平符合巡航模式
+      vTaskDelay(20 / portTICK_PERIOD_MS);            // 延时20ms，消抖
+      if (statusHand == HIGH && statusFoot == HIGH) { // 再次确认引脚电平符合续航模式
+        myRGB.clear();
+        mode = CRUISE_MODE;
+        myRGB.setPixelColor(0, myRGB.Color(255, 0, 0)); // 红色
+        myRGB.show();
+        buzzer(1, 100, 50);
+      }
+    }
+    // 手动模式
+    if (statusHand == HIGH && statusFoot == LOW) {
+      vTaskDelay(20 / portTICK_PERIOD_MS);
+      if (statusHand == HIGH && statusFoot == LOW) {
+        myRGB.clear();
+        mode = HAND_MODE;
+        myRGB.setPixelColor(0, myRGB.Color(0, 255, 0)); // 绿色
+        myRGB.show();
+        buzzer(1, 100, 50);
+      }
+    }
+    // 脚控模式
+    if (statusHand == LOW && statusFoot == HIGH) {
+      vTaskDelay(20 / portTICK_PERIOD_MS);
+      if (statusHand == LOW && statusFoot == HIGH) {
+        myRGB.clear();
+        mode = FOOT_MODE;
+        myRGB.setPixelColor(0, myRGB.Color(0, 0, 255)); // 蓝色
+        myRGB.show();
+        buzzer(1, 100, 50);
+      }
     }
     vTaskDelayUntil(&xLastWakeTime, xPeriod);
   }
@@ -148,14 +194,10 @@ void motor(void* pt) {
     bool right     = footPad.stepData[1];
     bool motor     = footPad.stepData[2];
     bool function  = footPad.stepData[3];
-    switch (contorlMode) {
-    case 0: // 待机模式
-      digitalWrite(TMC2209_EN, HIGH);
-      digitalWrite(MOS_STEP, LOW);
-      digitalWrite(THROTTLE, LOW);
-      break;
-    case 3: // 脚控模式
-            // 使能TMC2209，导通MOS管
+    switch (mode) {
+
+    case FOOT_MODE: // 脚控模式
+                    // 使能TMC2209，导通MOS管
       digitalWrite(TMC2209_EN, LOW);
       digitalWrite(MOS_STEP, HIGH);
       // digitalWrite(THROTTLE, LOW);
@@ -193,7 +235,7 @@ void motor(void* pt) {
         delayMicroseconds(stepSpeed);
       }
       break;
-    case 2: // 巡航模式
+    case CRUISE_MODE: // 巡航模式
       digitalWrite(THROTTLE, HIGH);
       // 左转
       if (left == 0 && right == 1 && function == 1) {
@@ -224,7 +266,7 @@ void motor(void* pt) {
         delayMicroseconds(stepSpeed);
       }
       break;
-    case 1: // 手控模式
+    case HAND_MODE: // 手控模式
       digitalWrite(THROTTLE, HIGH);
       // 关闭步进电机控制
       digitalWrite(TMC2209_EN, HIGH);
@@ -259,7 +301,9 @@ void setup() {
   digitalWrite(MOS_STEP, LOW);
   digitalWrite(TMC2209_EN, HIGH);
 
-  xTaskCreate(buzzer, "buzzer", 1024 * 1, NULL, 1, NULL);
+  myRGB.begin();
+  myRGB.setBrightness(100);
+  myRGB.clear();
   xTaskCreate(modeChange, "modeChange", 1024 * 1, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 2, NULL, 1, NULL);
 }
