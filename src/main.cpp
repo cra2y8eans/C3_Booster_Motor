@@ -43,11 +43,11 @@ bool esp_now_connected;
 #define ONFOOT 4
 #define ONHAND 5
 
-enum Mode {
+typedef enum {
   HAND_MODE,
   FOOT_MODE,
   CRUISE_MODE,
-};
+} Mode;
 Mode mode;
 
 /*----------------------------------------------- 步进电机 -----------------------------------------------*/
