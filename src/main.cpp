@@ -87,14 +87,8 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
   // 如果发送成功
   if (status == ESP_NOW_SEND_SUCCESS) {
     esp_now_connected = true;
-#if DEBUG
-    Serial.println("数据发送成功");
-#endif
   } else {
     esp_now_connected = false;
-#if DEBUG
-    Serial.println("数据发送失败");
-#endif
   }
 }
 
@@ -175,6 +169,7 @@ void esp_now_connect() {
 void modeChange(void* pt) {
   TickType_t       xLastWakeTime = xTaskGetTickCount();
   const TickType_t xPeriod       = pdMS_TO_TICKS(50); // 频率 20Hz → 周期为 1/20 = 0.05 秒 = 50 毫秒
+  Mode             BoosterMode;
   while (1) {
     bool statusHand = digitalRead(ONHAND);
     bool statusFoot = digitalRead(ONFOOT);
@@ -183,10 +178,14 @@ void modeChange(void* pt) {
       vTaskDelay(20 / portTICK_PERIOD_MS);            // 延时20ms，消抖
       if (statusHand == HIGH && statusFoot == HIGH) { // 再次确认引脚电平符合续航模式
         mode = CRUISE_MODE;
+        esp_now_send(FootPadAddress, (uint8_t*)&BoosterMode, sizeof(BoosterMode));
         myRGB.clear();
         myRGB.setPixelColor(0, yellow);
         myRGB.show();
         buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_DURATION);
+#if DEBUG
+        Serial.println("巡航模式");
+#endif
       }
     }
     // 手动模式
@@ -194,10 +193,14 @@ void modeChange(void* pt) {
       vTaskDelay(20 / portTICK_PERIOD_MS);
       if (statusHand == HIGH && statusFoot == LOW) {
         mode = HAND_MODE;
+        esp_now_send(FootPadAddress, (uint8_t*)&BoosterMode, sizeof(BoosterMode));
         myRGB.clear();
         myRGB.setPixelColor(0, green);
         myRGB.show();
         buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_DURATION);
+#if DEBUG
+        Serial.println("手动模式");
+#endif
       }
     }
     // 脚控模式
@@ -205,10 +208,14 @@ void modeChange(void* pt) {
       vTaskDelay(20 / portTICK_PERIOD_MS);
       if (statusHand == LOW && statusFoot == HIGH) {
         mode = FOOT_MODE;
+        esp_now_send(FootPadAddress, (uint8_t*)&BoosterMode, sizeof(BoosterMode));
         myRGB.clear();
         myRGB.setPixelColor(0, blue);
         myRGB.show();
         buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_DURATION);
+#if DEBUG
+        Serial.println("脚控模式");
+#endif
       }
     }
     vTaskDelayUntil(&xLastWakeTime, xPeriod);
@@ -233,7 +240,6 @@ void motor(void* pt) {
       digitalWrite(THROTTLE, motor ? LOW : HIGH);
       digitalWrite(TMC2209_EN, LOW);
       digitalWrite(MOS_STEP, HIGH);
-
       if (left == 0 && right == 1) {                          // 左转按钮按下
         digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
         digitalWrite(TMC2209_STEP, HIGH);
@@ -241,7 +247,6 @@ void motor(void* pt) {
         digitalWrite(TMC2209_STEP, LOW);
         delayMicroseconds(stepSpeed);
       }
-
       if (left == 1 && right == 0) {                          // 右转按钮按下
         digitalWrite(TMC2209_DIRCTION, reverse ? LOW : HIGH); // 反向为假，右转变左转，输出低电平，逆时针旋转。反之输出高电平，顺时针旋转
         digitalWrite(TMC2209_STEP, HIGH);
@@ -256,7 +261,6 @@ void motor(void* pt) {
       digitalWrite(THROTTLE, HIGH);
       digitalWrite(TMC2209_EN, LOW);
       digitalWrite(MOS_STEP, HIGH);
-
       if (left == 0 && right == 1) {                          // 左转按钮按下
         digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
         digitalWrite(TMC2209_STEP, HIGH);
@@ -264,7 +268,6 @@ void motor(void* pt) {
         digitalWrite(TMC2209_STEP, LOW);
         delayMicroseconds(stepSpeed);
       }
-
       if (left == 1 && right == 0) {                          // 右转按钮按下
         digitalWrite(TMC2209_DIRCTION, reverse ? LOW : HIGH); // 反向为假，右转变左转，输出低电平，逆时针旋转。反之输出高电平，顺时针旋转
         digitalWrite(TMC2209_STEP, HIGH);
@@ -317,6 +320,9 @@ void setup() {
 
   xTaskCreate(modeChange, "modeChange", 1024 * 1, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 2, NULL, 1, NULL);
+#if DEBUG
+  Serial.println("电推初始化完成");
+#endif
 }
 
 void loop() {
