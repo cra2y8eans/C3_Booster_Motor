@@ -108,6 +108,7 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
  * @param     reverse: 每次鸣叫的间隔时间，单位毫秒
  */
 void buzzer(uint8_t times, int duration, int interval) {
+  if (times == 1) interval = 0; // 如果只鸣叫一次则不间隔
   for (int i = 0; i < times; i++) {
     digitalWrite(BUZZER, HIGH);
     vTaskDelay(duration / portTICK_PERIOD_MS);
@@ -182,22 +183,28 @@ void esp_now_connect() {
   myRGB.clear();
 }
 
-// 模式判断
+// 消抖读取当前模式
 Mode readCurrentModeWithDebounce() {
   int readHand_1 = digitalRead(ONHAND);
   int readFoot_1 = digitalRead(ONFOOT);
   vTaskDelay(20 / portTICK_PERIOD_MS); // 延时20ms，消抖
   int readHand_2 = digitalRead(ONHAND);
   int readFoot_2 = digitalRead(ONFOOT);
-  if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) return currentMode; // 如果两次读取的值不一样，说明有抖动，返回当前模式
-  if (readHand_1 == LOW && readFoot_1 == HIGH) return HAND_MODE;                // 手控模式
-  if (readHand_1 == HIGH && readFoot_1 == LOW) return FOOT_MODE;                // 脚控模式
-  if (readHand_1 == HIGH && readFoot_1 == HIGH) return CRUISE_MODE;             // 巡航模式
-  if (esp_now_connected == false) return STANDBY_MODE;                          // 如果断线，返回待机模式
-  return STANDBY_MODE;                                                          // 默认返回待机模式
+  if (esp_now_connected) {
+    if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) return lastMode; // 如果两次读取的值不一样，说明有抖动，返回上次的模式
+    if (readHand_1 == LOW && readFoot_1 == HIGH) return HAND_MODE;             // 手控模式
+    if (readHand_1 == HIGH && readFoot_1 == LOW) return FOOT_MODE;             // 脚控模式
+    if (readHand_1 == HIGH && readFoot_1 == HIGH) return CRUISE_MODE;          // 巡航模式
+  } else {
+    return STANDBY_MODE; // 如果断线，返回待机模式
+  }
+  return STANDBY_MODE; // 默认返回待机模式
 }
 
-// 模式切换硬件执行
+/** 模式切换
+ * @brief    模式切换相关硬件的操作
+ * @param    newMode: 切换到的新模式
+ */
 void modeChangeOperation(Mode newMode) {
   booster.mode = newMode;
   esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster));
@@ -219,7 +226,7 @@ void modeChangeOperation(Mode newMode) {
     break;
   }
   myRGB.show();
-  buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_DURATION);
+  buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
 #if DEBUG
   const char* modeNames[] = { "手动模式", "脚控模式", "巡航模式", "待机模式" };
   Serial.println(modeNames[newMode]);
@@ -341,7 +348,7 @@ void setup() {
   myRGB.clear();
   esp_now_connect();
   lastMode = readCurrentModeWithDebounce();
-  // modeChangeOperation(lastMode);
+  modeChangeOperation(lastMode); // 上电时根据按键状态设置初始模式和灯光
 
   xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
