@@ -105,7 +105,7 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
  * @brief     蜂鸣器通用函数
  * @param     times: 鸣叫次数
  * @param     duration: 持续时间，单位毫秒
- * @param     reverse: 每次鸣叫的间隔时间，单位毫秒
+ * @param     interval: 每次鸣叫的间隔时间，单位毫秒
  */
 void buzzer(uint8_t times, int duration, int interval) {
   if (times == 1) interval = 0; // 如果只鸣叫一次则不间隔
