@@ -341,7 +341,7 @@ void setup() {
   myRGB.clear();
   esp_now_connect();
   lastMode = readCurrentModeWithDebounce();
-  modeChangeOperation(lastMode);
+  // modeChangeOperation(lastMode);
 
   xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
