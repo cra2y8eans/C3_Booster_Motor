@@ -53,6 +53,7 @@ volatile bool esp_now_connected;
 
 #define ONFOOT 4
 #define ONHAND 5
+#define SWITCH_DEBOUNCE_DELAY 35 // 按键消抖延时，单位毫秒
 
 /*----------------------------------------------- 步进电机 -----------------------------------------------*/
 
@@ -187,7 +188,7 @@ void esp_now_connect() {
 Mode readCurrentModeWithDebounce() {
   int readHand_1 = digitalRead(ONHAND);
   int readFoot_1 = digitalRead(ONFOOT);
-  vTaskDelay(20 / portTICK_PERIOD_MS); // 延时20ms，消抖
+  vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
   int readHand_2 = digitalRead(ONHAND);
   int readFoot_2 = digitalRead(ONFOOT);
   if (esp_now_connected) {
@@ -235,15 +236,14 @@ void modeChangeOperation(Mode newMode) {
 
 // 模式切换
 void modeChange(void* pt) {
-  TickType_t       xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xPeriod       = pdMS_TO_TICKS(50); // 频率 20Hz → 周期为 1/20 = 0.05 秒 = 50 毫秒
   while (1) {
     currentMode = readCurrentModeWithDebounce();
     if (currentMode != lastMode) {
       modeChangeOperation(currentMode);
       lastMode = currentMode;
+    } else {
+      vTaskDelay(5 / portTICK_PERIOD_MS); // 已有35ms的debounce时间，如果模式没有变化，则再延时5ms，将频率设定在25hz左右，避免CPU占用过高
     }
-    vTaskDelayUntil(&xLastWakeTime, xPeriod);
   }
 }
 
