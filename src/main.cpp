@@ -263,6 +263,11 @@ void motor(void* pt) {
     case FOOT_MODE:
       digitalWrite(TMC2209_EN, LOW);
       digitalWrite(MOS_STEP, HIGH);
+#if DEBUG
+      Serial.println("脚控模式");
+      Serial.println("TMC2209控制板使能");
+      Serial.println("步进电机供电");
+#endif
       digitalWrite(THROTTLE, motor ? LOW : HIGH);             // 输入上拉，踩油门输出低电平
       if (left == 0 && right == 1) {                          // 左转按钮按下
         digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
@@ -285,6 +290,12 @@ void motor(void* pt) {
       digitalWrite(TMC2209_EN, LOW);
       digitalWrite(MOS_STEP, HIGH);
       digitalWrite(THROTTLE, HIGH);
+#if DEBUG
+      Serial.println("巡航模式");
+      Serial.println("TMC2209控制板使能");
+      Serial.println("步进电机供电");
+      Serial.println("电推供电");
+#endif
       if (left == 0 && right == 1) {                          // 左转按钮按下
         digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
         digitalWrite(TMC2209_STEP, HIGH);
@@ -303,9 +314,15 @@ void motor(void* pt) {
 
       // 手控模式
     case HAND_MODE:
-      digitalWrite(THROTTLE, HIGH);   // 电机常开
       digitalWrite(TMC2209_EN, HIGH); // 关闭步进电机控制板
       digitalWrite(MOS_STEP, LOW);    // 关闭步进电机电源
+      digitalWrite(THROTTLE, HIGH);   // 电机常开
+#if DEBUG
+      Serial.println("手控模式");
+      Serial.println("TMC2209控制板关闭");
+      Serial.println("步进电机断电");
+      Serial.println("电推供电");
+#endif
       break;
 
     // 待机模式
@@ -313,6 +330,12 @@ void motor(void* pt) {
       digitalWrite(THROTTLE, HIGH);   // 电机常开
       digitalWrite(TMC2209_EN, HIGH); // 关闭步进电机控制
       digitalWrite(MOS_STEP, LOW);
+#if DEBUG
+      Serial.println("待机模式");
+      Serial.println("TMC2209控制板关闭");
+      Serial.println("步进电机断电");
+      Serial.println("电推供电");
+#endif
       break;
     default:
       break;
