@@ -31,8 +31,8 @@ enum Mode {
   CRUISE_MODE, // 巡航模式
   STANDBY_MODE // 待机模式
 };
-Mode currentMode = STANDBY_MODE; // 默认为待机模式
-Mode lastMode    = STANDBY_MODE;
+Mode currentMode = HAND_MODE; // 默认为手动模式
+Mode lastMode    = HAND_MODE;
 
 // 发送的数据
 struct Booster {
@@ -91,9 +91,7 @@ uint32_t yellow = myRGB.Color(255, 255, 0); // 黄色
 void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
   // 如果发送成功
   if (status == ESP_NOW_SEND_SUCCESS) {
-    esp_now_connected = true;
-  } else {
-    esp_now_connected = false;
+    if (!esp_now_connected) esp_now_connected = true;
   }
 }
 
@@ -104,7 +102,7 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
 
 /**  蜂鸣器
  * @brief     蜂鸣器通用函数
- * @param     times: 鸣叫次数
+ * @param     times:    鸣叫次数
  * @param     duration: 持续时间，单位毫秒
  * @param     interval: 每次鸣叫的间隔时间，单位毫秒
  */
@@ -118,36 +116,70 @@ void buzzer(uint8_t times, int duration, int interval) {
   }
 }
 
+/**  蜂鸣器
+ * @brief     RGB通用函数
+ * @param     times:    闪烁次数
+ * @param     duration: 持续时间，单位毫秒
+ * @param     interval: 每次闪烁的间隔时间，单位毫秒
+ */
+
+// RGB 指示灯
+void rgbFlash(void* pvParameters) {
+  while (1) {
+  }
+}
+
 // ESP NOW
 void esp_now_connect() {
   WiFi.mode(WIFI_STA); // 设置wifi为STA模式
   WiFi.begin();
-  esp_now_init();                       // 初始化ESP NOW
-  esp_now_register_send_cb(OnDataSent); // 注册发送成功的回调函数
-  esp_now_register_recv_cb(OnDataRecv); // 注册接受数据后的回调函数
-
-  // 注册通信频道
-  memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
-  peerInfo.channel = 1;                          // 设置通信频道
-  esp_now_add_peer(&peerInfo);                   // 添加通信对象
-
-  // 如果初始化失败则重连
-  if (esp_now_init() != ESP_OK) {
+  // esp_now_init();                       // 初始化ESP NOW
+  // esp_now_register_send_cb(OnDataSent); // 注册发送成功的回调函数
+  // esp_now_register_recv_cb(OnDataRecv); // 注册接受数据后的回调函数
+  // // 注册通信频道
+  // memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
+  // peerInfo.channel = 1;                          // 设置通信频道
+  // esp_now_add_peer(&peerInfo);                   // 添加通信对象
+  if (esp_now_init() == ESP_OK) {
+    // 初始化成功
+    esp_now_register_send_cb(OnDataSent); // 注册发送成功的回调函数
+    esp_now_register_recv_cb(OnDataRecv); // 注册接受数据后的回调函数
+    // 注册通信频道
+    memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
+    peerInfo.channel = 1;                          // 设置通信频道
+    esp_now_add_peer(&peerInfo);                   // 添加通信对象
+    // 指示灯提示
+    myRGB.clear();
+    myRGB.setPixelColor(0, red);
+    myRGB.show();
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    myRGB.clear();
+    myRGB.setPixelColor(0, green);
+    myRGB.show();
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    myRGB.clear();
+    myRGB.setPixelColor(0, blue);
+    myRGB.show();
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    myRGB.clear();
 #if DEBUG
-    Serial.println("ESP NOW 初始化失败，正在重连...");
+    Serial.println("esp now初始化函数：ESP NOW 初始化成功");
+#endif
+  } else {
+#if DEBUG
+    Serial.println("esp now初始化函数：ESP NOW 初始化失败，正在重试...");
 #endif
     // 报警
     myRGB.clear();
     myRGB.setPixelColor(0, red);
     myRGB.show();
-    // 尝试重连3次
+    // 尝试重试3次
     bool reconnect_3_times = false;
     while (!reconnect_3_times) {
       for (int i = 0; i < 3; i++) {
         buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
-// 重连
 #if DEBUG
-        Serial.printf("重连第 %d 次...\n", i + 1);
+        Serial.printf("esp now初始化函数：重试第 %d 次...\n", i + 1);
 #endif
         esp_now_init();                                // 初始化ESP NOW
         esp_now_register_send_cb(OnDataSent);          // 注册发送成功的回调函数
@@ -157,31 +189,14 @@ void esp_now_connect() {
         esp_now_add_peer(&peerInfo);                   // 添加通信对象
         vTaskDelay(5000 / portTICK_PERIOD_MS);         // 延时5秒
       }
-      // 如果3次重连都失败，则退出循环
+      // 如果3次重试都失败，则退出循环
       reconnect_3_times = true;
       esp_now_connected = false;
 #if DEBUG
-      Serial.println("ESP NOW 重连失败");
+      Serial.println("esp now初始化函数：ESP NOW 重试失败");
 #endif
     }
   }
-// 初始化成功
-#if DEBUG
-  Serial.println("ESP NOW 初始化成功");
-#endif
-  myRGB.clear();
-  myRGB.setPixelColor(0, red);
-  myRGB.show();
-  vTaskDelay(500 / portTICK_PERIOD_MS);
-  myRGB.clear();
-  myRGB.setPixelColor(0, green);
-  myRGB.show();
-  vTaskDelay(500 / portTICK_PERIOD_MS);
-  myRGB.clear();
-  myRGB.setPixelColor(0, blue);
-  myRGB.show();
-  vTaskDelay(500 / portTICK_PERIOD_MS);
-  myRGB.clear();
 }
 
 // 消抖读取当前模式
@@ -191,15 +206,18 @@ Mode readCurrentModeWithDebounce() {
   vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
   int readHand_2 = digitalRead(ONHAND);
   int readFoot_2 = digitalRead(ONFOOT);
-  if (esp_now_connected) {
-    if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) return lastMode; // 如果两次读取的值不一样，说明有抖动，返回上次的模式
-    if (readHand_1 == LOW && readFoot_1 == HIGH) return HAND_MODE;             // 手控模式
-    if (readHand_1 == HIGH && readFoot_1 == LOW) return FOOT_MODE;             // 脚控模式
-    if (readHand_1 == HIGH && readFoot_1 == HIGH) return CRUISE_MODE;          // 巡航模式
-  } else {
+
+  if (!esp_now_connected) {
+#if DEBUG
+    Serial.println("消抖读取函数：ESP NOW 断线，返回待机模式");
+#endif
     return STANDBY_MODE; // 如果断线，返回待机模式
   }
-  return STANDBY_MODE; // 默认返回待机模式
+  if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) return lastMode; // 如果两次读取的值不一样，说明有抖动，返回上次的模式
+  if (readHand_1 == LOW && readFoot_1 == HIGH) return HAND_MODE;             // 手控模式
+  if (readHand_1 == HIGH && readFoot_1 == LOW) return FOOT_MODE;             // 脚控模式
+  if (readHand_1 == HIGH && readFoot_1 == HIGH) return CRUISE_MODE;          // 巡航模式
+  return HAND_MODE;                                                          // 默认返回手动模式
 }
 
 /** 模式切换
@@ -230,6 +248,7 @@ void modeChangeOperation(Mode newMode) {
   buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
 #if DEBUG
   const char* modeNames[] = { "手动模式", "脚控模式", "巡航模式", "待机模式" };
+  Serial.print("模式切换函数：");
   Serial.println(modeNames[newMode]);
 #endif
 }
@@ -350,10 +369,11 @@ void setup() {
   lastMode = readCurrentModeWithDebounce();
   modeChangeOperation(lastMode); // 上电时根据按键状态设置初始模式和灯光
 
+  xTaskCreate(rgbFlash, "rgbFlash", 1024 * 1, NULL, 1, NULL);
   xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
 #if DEBUG
-  Serial.println("电推初始化完成");
+  Serial.println("setup:电推初始化完成");
 #endif
 }
 
