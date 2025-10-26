@@ -150,13 +150,6 @@ void rgbBlink(uint8_t times, int duration, int interval, uint32_t color) {
 void esp_now_connect() {
   WiFi.mode(WIFI_STA); // 设置wifi为STA模式
   WiFi.begin();
-  // esp_now_init();                       // 初始化ESP NOW
-  // esp_now_register_send_cb(OnDataSent); // 注册发送成功的回调函数
-  // esp_now_register_recv_cb(OnDataRecv); // 注册接受数据后的回调函数
-  // // 注册通信频道
-  // memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
-  // peerInfo.channel = 1;                          // 设置通信频道
-  // esp_now_add_peer(&peerInfo);                   // 添加通信对象
   if (esp_now_init() == ESP_OK) {
     // 初始化成功
     esp_now_register_send_cb(OnDataSent); // 注册发送成功的回调函数
