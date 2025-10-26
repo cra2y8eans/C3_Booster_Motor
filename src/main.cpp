@@ -26,10 +26,10 @@ esp_now_peer_info_t peerInfo;
 
 // 模式
 enum Mode {
-  HAND_MODE,   // 手动模式
-  FOOT_MODE,   // 脚控模式
-  CRUISE_MODE, // 巡航模式
-  STANDBY_MODE // 待机模式
+  HAND_MODE,    // 手动模式
+  FOOT_MODE,    // 脚控模式
+  CRUISE_MODE,  // 巡航模式
+  STANDBY_MODE, // 待机模式
 };
 Mode currentMode = HAND_MODE; // 默认为手动模式
 Mode lastMode    = HAND_MODE;
@@ -73,13 +73,21 @@ volatile bool esp_now_connected;
 /*----------------------------------------------- WS2812 -----------------------------------------------*/
 
 #define WS2812_PIN 3
+#define MAX_BRIGHTNESS 255
+#define MIN_BRIGHTNESS 0
+#define STANDARD_BRIGHTNESS 100
+#define SHORT_FLASH_DURATION 200
+#define SHORT_FLASH_INTERVAL 200
+#define LONG_FLASH_DURATION 500
+#define LONG_FLASH_INTERVAL 500
+
+uint16_t brightness; // 动态亮度
 
 Adafruit_NeoPixel myRGB(1, WS2812_PIN, NEO_GRB + NEO_KHZ800);
-
-uint32_t red    = myRGB.Color(255, 0, 0);   // 红色
-uint32_t green  = myRGB.Color(0, 255, 0);   // 绿色
-uint32_t blue   = myRGB.Color(0, 0, 255);   // 蓝色
-uint32_t yellow = myRGB.Color(255, 255, 0); // 黄色
+uint32_t          red    = myRGB.Color(255, 0, 0);  // 红色
+uint32_t          green  = myRGB.Color(0, 255, 0);  // 绿色
+uint32_t          blue   = myRGB.Color(0, 0, 255);  // 蓝色
+uint32_t          yellow = myRGB.Color(255, 80, 0); // 黄色
 
 /*----------------------------------------------- 电机 -----------------------------------------------*/
 
@@ -98,6 +106,7 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
 // 收到消息后的回调
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
   memcpy(&footPad, incomingData, sizeof(footPad));
+  if (!esp_now_connected) esp_now_connected = true;
 }
 
 /**  蜂鸣器
@@ -116,16 +125,24 @@ void buzzer(uint8_t times, int duration, int interval) {
   }
 }
 
-/**  蜂鸣器
+/**  指示灯
  * @brief     RGB通用函数
  * @param     times:    闪烁次数
  * @param     duration: 持续时间，单位毫秒
  * @param     interval: 每次闪烁的间隔时间，单位毫秒
+ * @param     color:    颜色值
  */
 
-// RGB 指示灯
-void rgbFlash(void* pvParameters) {
-  while (1) {
+void rgbBlink(uint8_t times, int duration, int interval, uint32_t color) {
+  if (times == 1) interval = 0; // 如果只闪烁一次则不间隔
+  for (int i = 0; i < times; i++) {
+    myRGB.clear();
+    myRGB.setPixelColor(0, color); // led编号和颜色，编号从0开始。
+    myRGB.show();
+    vTaskDelay(duration / portTICK_PERIOD_MS);
+    myRGB.clear();
+    myRGB.show();
+    vTaskDelay(interval / portTICK_PERIOD_MS);
   }
 }
 
@@ -225,8 +242,8 @@ Mode readCurrentModeWithDebounce() {
  * @param    newMode: 切换到的新模式
  */
 void modeChangeOperation(Mode newMode) {
-  booster.mode = newMode;
-  esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster));
+  booster.mode = newMode;                                            // 更新模式
+  esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送模式数据给脚控
   myRGB.clear();
   switch (newMode) {
   case HAND_MODE:
@@ -363,13 +380,13 @@ void setup() {
   digitalWrite(TMC2209_EN, HIGH);
 
   myRGB.begin();
-  myRGB.setBrightness(100);
+  myRGB.setBrightness(STANDARD_BRIGHTNESS);
   myRGB.clear();
   esp_now_connect();
   lastMode = readCurrentModeWithDebounce();
   modeChangeOperation(lastMode); // 上电时根据按键状态设置初始模式和灯光
 
-  xTaskCreate(rgbFlash, "rgbFlash", 1024 * 1, NULL, 1, NULL);
+  // xTaskCreate(BuzzerFlash, "BuzzerFlash", 1024 * 1, NULL, 1, NULL);
   xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
 #if DEBUG
