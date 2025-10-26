@@ -100,6 +100,8 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
   // 如果发送成功
   if (status == ESP_NOW_SEND_SUCCESS) {
     if (!esp_now_connected) esp_now_connected = true;
+  } else {
+    esp_now_connected = false;
   }
 }
 
@@ -211,18 +213,18 @@ void esp_now_connect() {
 
 // 消抖读取当前模式
 Mode readCurrentModeWithDebounce() {
-  int readHand_1 = digitalRead(ONHAND);
-  int readFoot_1 = digitalRead(ONFOOT);
-  vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
-  int readHand_2 = digitalRead(ONHAND);
-  int readFoot_2 = digitalRead(ONFOOT);
-
   if (!esp_now_connected) {
 #if DEBUG
     Serial.println("消抖读取函数：ESP NOW 断线，返回待机模式");
 #endif
     return STANDBY_MODE; // 如果断线，返回待机模式
   }
+  int readHand_1 = digitalRead(ONHAND);
+  int readFoot_1 = digitalRead(ONFOOT);
+  vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
+  int readHand_2 = digitalRead(ONHAND);
+  int readFoot_2 = digitalRead(ONFOOT);
+
   if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) return lastMode; // 如果两次读取的值不一样，说明有抖动，返回上次的模式
   if (readHand_1 == LOW && readFoot_1 == HIGH) return HAND_MODE;             // 手控模式
   if (readHand_1 == HIGH && readFoot_1 == LOW) return FOOT_MODE;             // 脚控模式
