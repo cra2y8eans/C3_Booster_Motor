@@ -255,14 +255,12 @@ void modeChangeOperation(Mode newMode) {
     buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
     break;
   case STANDBY_MODE:
-    myRGB.setBrightness(MAX_BRIGHTNESS);
     myRGB.setPixelColor(0, red);
     buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
     break;
   default:
     break;
   }
-  myRGB.setBrightness(STANDARD_BRIGHTNESS);
   myRGB.show();
 #if DEBUG
   const char* modeNames[] = { "手动模式", "脚控模式", "巡航模式", "待机模式" };
