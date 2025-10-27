@@ -108,7 +108,6 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
 // 收到消息后的回调
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
   memcpy(&footPad, incomingData, sizeof(footPad));
-  if (!esp_now_connected) esp_now_connected = true;
 }
 
 /**  蜂鸣器
@@ -211,73 +210,79 @@ void esp_now_connect() {
   }
 }
 
-// 消抖读取当前模式
-Mode readCurrentModeWithDebounce() {
-  if (!esp_now_connected) {
-#if DEBUG
-    Serial.println("消抖读取函数：ESP NOW 断线，返回待机模式");
-#endif
-    return STANDBY_MODE; // 如果断线，返回待机模式
+// 指示灯和提示音
+void BuzzerFlash(void* pt) {
+  while (1) {
+    // 只有当模式改变时才执行，也就意味着如果模式在一定时间内保持一致，以下代码只执行一次
+    if (currentMode != lastMode) { 
+      lastMode     = currentMode;
+      booster.mode = currentMode;
+      esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送模式数据给脚控
+      switch (currentMode) {
+      case HAND_MODE:
+        myRGB.setPixelColor(0, green);
+        buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+        break;
+      case FOOT_MODE:
+        myRGB.setPixelColor(0, blue);
+        buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+        break;
+      case CRUISE_MODE:
+        myRGB.setPixelColor(0, yellow);
+        buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+        break;
+      case STANDBY_MODE:
+        myRGB.setBrightness(MAX_BRIGHTNESS); // 提高亮度以示区别
+        myRGB.setPixelColor(0, red);
+        buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL); // 三声短鸣
+        break;
+      default:
+        break;
+      }
+      myRGB.setBrightness(STANDARD_BRIGHTNESS); // 恢复标准亮度
+      myRGB.show();
+    } else {
+      vTaskDelay(50 / portTICK_PERIOD_MS); // 延时，避免CPU占用过高
+    }
   }
-  int readHand_1 = digitalRead(ONHAND);
-  int readFoot_1 = digitalRead(ONFOOT);
-  vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
-  int readHand_2 = digitalRead(ONHAND);
-  int readFoot_2 = digitalRead(ONFOOT);
-
-  if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) return lastMode; // 如果两次读取的值不一样，说明有抖动，返回上次的模式
-  if (readHand_1 == LOW && readFoot_1 == HIGH) return HAND_MODE;             // 手控模式
-  if (readHand_1 == HIGH && readFoot_1 == LOW) return FOOT_MODE;             // 脚控模式
-  if (readHand_1 == HIGH && readFoot_1 == HIGH) return CRUISE_MODE;          // 巡航模式
-  return HAND_MODE;                                                          // 默认返回手动模式
-}
-
-/** 模式切换
- * @brief    模式切换相关硬件的操作
- * @param    newMode: 切换到的新模式
- */
-void modeChangeOperation(Mode newMode) {
-  booster.mode = newMode;                                            // 更新模式
-  esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送模式数据给脚控
-  myRGB.clear();
-  switch (newMode) {
-  case HAND_MODE:
-    myRGB.setPixelColor(0, green);
-    break;
-  case FOOT_MODE:
-    myRGB.setPixelColor(0, blue);
-    break;
-  case CRUISE_MODE:
-    myRGB.setPixelColor(0, yellow);
-    break;
-  case STANDBY_MODE:
-    myRGB.setPixelColor(0, red);
-    break;
-  default:
-    break;
-  }
-  myRGB.show();
-  buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
-#if DEBUG
-  const char* modeNames[] = { "手动模式", "脚控模式", "巡航模式", "待机模式" };
-  Serial.print("模式切换函数：");
-  Serial.println(modeNames[newMode]);
-#endif
 }
 
 // 模式切换
 void modeChange(void* pt) {
   while (1) {
-    currentMode = readCurrentModeWithDebounce();
-    if (currentMode != lastMode) {
-      modeChangeOperation(currentMode);
-      lastMode = currentMode;
+    if (!esp_now_connected) {
+#if DEBUG
+      Serial.println("模式切换任务：ESP NOW 断线，进入待机模式");
+#endif
+      currentMode = STANDBY_MODE; // 如果断线，返回待机模式
     } else {
-      vTaskDelay(5 / portTICK_PERIOD_MS); // 已有35ms的debounce时间，如果模式没有变化，则再延时5ms，将频率设定在25hz左右，避免CPU占用过高
+      int readHand_1 = digitalRead(ONHAND);
+      int readFoot_1 = digitalRead(ONFOOT);
+      vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
+      int readHand_2 = digitalRead(ONHAND);
+      int readFoot_2 = digitalRead(ONFOOT);
+      if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) { // 如果两次读取的值不一样，说明有抖动
+        currentMode = lastMode;                                   // 返回上次的模式
+      } else {
+        if (readHand_1 == LOW && readFoot_1 == HIGH) {
+          currentMode = HAND_MODE; // 手控模式
+        } else if (readHand_1 == HIGH && readFoot_1 == LOW) {
+          currentMode = FOOT_MODE; // 脚控模式
+        } else if (readHand_1 == HIGH && readFoot_1 == HIGH) {
+          currentMode = CRUISE_MODE; // 巡航模式
+        } else {
+          currentMode = STANDBY_MODE; // 待机模式
+        }
+      }
     }
+#if DEBUG
+    const char* modeNames[] = { "手动模式", "脚控模式", "巡航模式", "待机模式" };
+    Serial.print("模式切换任务：");
+    Serial.println(modeNames[currentMode]);
+#endif
+    vTaskDelay(30 / portTICK_PERIOD_MS); // 延时，避免CPU占用过高
   }
 }
-
 // 电推脚控
 void motor(void* pt) {
   TickType_t       xLastWakeTime = xTaskGetTickCount();
@@ -378,11 +383,9 @@ void setup() {
   myRGB.setBrightness(STANDARD_BRIGHTNESS);
   myRGB.clear();
   esp_now_connect();
-  lastMode = readCurrentModeWithDebounce();
-  modeChangeOperation(lastMode); // 上电时根据按键状态设置初始模式和灯光
 
-  // xTaskCreate(BuzzerFlash, "BuzzerFlash", 1024 * 1, NULL, 1, NULL);
-  xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
+  xTaskCreate(BuzzerFlash, "BuzzerFlash", 1024 * 1, NULL, 1, NULL);
+  xTaskCreate(modeChange, "modeChange", 1024 * 2, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
 #if DEBUG
   Serial.println("setup:电推初始化完成");
