@@ -19,6 +19,9 @@ ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
 
 /*----------------------------------------------- ESP NOW-----------------------------------------------*/
 
+#define ESP_NOW_CONNECT_TIMEOUT 2000
+unsigned lastRecvTime;
+
 uint8_t FootPadAddress[] = { 0x9c, 0x13, 0x9e, 0x52, 0x6e, 0x80 }; // 测试板
 
 // 创建ESP NOW通讯实例
@@ -97,18 +100,17 @@ uint32_t          yellow = myRGB.Color(255, 80, 0); // 黄色
 
 // 数据发出去之后的回调函数
 void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
-  // 如果发送成功
-  if (status == ESP_NOW_SEND_SUCCESS) {
-    if (!esp_now_connected) esp_now_connected = true;
-  } else {
-    esp_now_connected = false;
-  }
+// 如果发送成功
+#if DEBUG
+  status == ESP_NOW_SEND_SUCCESS ? Serial.println("数据发送回调函数：数据发送成功") : Serial.println("数据发送回调函数：数据发送失败");
+#endif
 }
 
 // 收到消息后的回调
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
   memcpy(&footPad, incomingData, sizeof(footPad));
-  if (!esp_now_connected) esp_now_connected = true;
+  esp_now_connected = true;
+  lastRecvTime      = millis();
 }
 
 /**  蜂鸣器
@@ -230,7 +232,6 @@ Mode readCurrentModeWithDebounce() {
     Serial.println("消抖读取函数：ESP NOW 断线，返回待机模式");
 #endif
   }
-
   return HAND_MODE; // 默认返回手动模式
 }
 
@@ -270,7 +271,19 @@ void modeChangeOperation(Mode newMode) {
 #endif
 }
 
-// 模式切换
+// 连接状态判断
+void connectionStatus(void* pt) {
+  TickType_t       xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xPeriod       = pdMS_TO_TICKS(500); // 频率 80Hz → 周期为 1/2 = 0.5 秒 = 500 毫秒
+  while (1) {
+    if (esp_now_connected && (millis() - lastRecvTime > ESP_NOW_CONNECT_TIMEOUT)) {
+      esp_now_connected = false;
+    }
+    vTaskDelayUntil(&xLastWakeTime, xPeriod);
+  }
+}
+
+// 模式更新和发送
 void modeChange(void* pt) {
   while (1) {
     currentMode = readCurrentModeWithDebounce();
@@ -389,6 +402,7 @@ void setup() {
   modeChangeOperation(lastMode); // 上电时根据按键状态设置初始模式和灯光
 
   // xTaskCreate(BuzzerFlash, "BuzzerFlash", 1024 * 1, NULL, 1, NULL);
+  xTaskCreate(connectionStatus, "connectionStatus", 1024 * 1, NULL, 1, NULL);
   xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
 #if DEBUG
@@ -397,4 +411,6 @@ void setup() {
 }
 
 void loop() {
+  esp_now_connected == true ? Serial.println("LOOP连接正常") : Serial.println("LOOP连接断开");
+  delay(500);
 }
