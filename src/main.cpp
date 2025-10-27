@@ -205,7 +205,7 @@ void esp_now_connect() {
       }
       // 如果3次重试都失败，则退出循环
       reconnect_3_times = true;
-      // esp_now_connected = false;
+      esp_now_connected = false;
 #if DEBUG
       Serial.println("esp now初始化函数：ESP NOW 重试失败");
 #endif
