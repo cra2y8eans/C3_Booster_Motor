@@ -87,7 +87,7 @@ Adafruit_NeoPixel myRGB(1, WS2812_PIN, NEO_GRB + NEO_KHZ800);
 uint32_t          red    = myRGB.Color(255, 0, 0);  // 红色
 uint32_t          green  = myRGB.Color(0, 255, 0);  // 绿色
 uint32_t          blue   = myRGB.Color(0, 0, 255);  // 蓝色
-uint32_t          yellow = myRGB.Color(255, 40, 0); // 黄色
+uint32_t          yellow = myRGB.Color(255, 40, 0); // 黄色 
 
 /*----------------------------------------------- 电机 -----------------------------------------------*/
 
