@@ -51,20 +51,23 @@ bool esp_now_connected;
 
 /*----------------------------------------------- 操控模式 -----------------------------------------------*/
 
-#define ONFOOT 4
-#define ONHAND 5
-#define SWITCH_DEBOUNCE_DELAY 35 // 按键消抖延时，单位毫秒
+#define ONFOOT 8
+#define ONHAND 9
+#define SWITCH_DEBOUNCE_DELAY 20 // 按键消抖延时，单位毫秒
 
 /*----------------------------------------------- 步进电机 -----------------------------------------------*/
 
-#define MOS_STEP 10
-#define TMC2209_DIRCTION 0
-#define TMC2209_STEP 1
-#define TMC2209_EN 2
+#define MOS_STEP 5
+#define TMC2209_DIRCTION 4
+#define TMC2209_STEP 0
+#define TMC2209_EN 10
+#define TMC2209_MS1 21
+#define TMC2209_MS2 2
+#define TMC2209_MS3 1
 
 /*----------------------------------------------- 蜂鸣器 -----------------------------------------------*/
 
-#define BUZZER 7
+#define BUZZER 3
 #define LONG_BEEP_DURATION 1000
 #define SHORT_BEEP_DURATION 200
 #define LONG_BEEP_INTERVAL 300
@@ -72,7 +75,7 @@ bool esp_now_connected;
 
 /*----------------------------------------------- WS2812 -----------------------------------------------*/
 
-#define WS2812_PIN 3
+#define WS2812_PIN 7
 #define MAX_BRIGHTNESS 255
 #define MIN_BRIGHTNESS 0
 #define STANDARD_BRIGHTNESS 100
