@@ -19,7 +19,8 @@ ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
 
 /*----------------------------------------------- ESP NOW-----------------------------------------------*/
 
-uint8_t FootPadAddress[] = { 0x9c, 0x13, 0x9e, 0x52, 0x6e, 0x80 }; // 测试板
+// uint8_t FootPadAddress[] = { 0x9c, 0x13, 0x9e, 0x52, 0x6e, 0x80 }; // 测试板
+uint8_t FootPadAddress[] = { 0x08, 0xa6, 0xf7, 0x1b, 0xb2, 0xcc };
 
 // 创建ESP NOW通讯实例
 esp_now_peer_info_t peerInfo;
