@@ -91,7 +91,7 @@ Adafruit_NeoPixel myRGB(1, WS2812_PIN, NEO_GRB + NEO_KHZ800);
 uint32_t          red    = myRGB.Color(255, 0, 0);  // 红色
 uint32_t          green  = myRGB.Color(0, 255, 0);  // 绿色
 uint32_t          blue   = myRGB.Color(0, 0, 255);  // 蓝色
-uint32_t          yellow = myRGB.Color(255, 40, 0); // 黄色 
+uint32_t          yellow = myRGB.Color(255, 40, 0); // 黄色
 
 /*----------------------------------------------- 电机 -----------------------------------------------*/
 
@@ -392,21 +392,23 @@ void setup() {
 
   xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
-#if DEBUG
   Serial.println("setup:电推初始化完成");
+#if DEBUG
 #endif
 }
 
 void loop() {
+  if (booster.mode == STANDBY_MODE) {
+    Serial.println("loop:进入待机模式，停止所有操作");
+    delay(200);
+  }
+  if (!esp_now_connected) {
+    Serial.println("LOOP函数：ESP NOW 断线，返回待机模式");
+    delay(200);
+  }
 #if DEBUG
-// esp_now_connected == true ? Serial.println("LOOP连接正常") : Serial.println("LOOP连接断开");
-#endif
-  // if (footPad.stepData[0] == LOW) Serial.print("左转");
-  // Serial.println(footPad.stepSpeed);
-  // if (footPad.stepData[1] == LOW) Serial.print("右转");
-  // Serial.println(footPad.stepSpeed);
-  // if (footPad.stepData[2] == LOW) Serial.println("踩油门");
-  // if (footPad.stepData[3] == LOW) Serial.println("反向");
+  esp_now_connected == true ? Serial.println("LOOP连接正常") : Serial.println("LOOP连接断开");
   Serial.printf("模式：%d，左转：%d，右转：%d，电推：%d，反向：%d，步进电机转速：%d\n", currentMode, footPad.stepData[0], footPad.stepData[1], footPad.stepData[2], footPad.stepData[3], footPad.stepSpeed);
   delay(500);
+#endif
 }
