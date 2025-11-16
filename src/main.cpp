@@ -16,6 +16,7 @@ ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
 #include <freertos/task.h>
 
 #define DEBUG 0
+#define TEST 1
 
 /*----------------------------------------------- ESP NOW-----------------------------------------------*/
 
@@ -461,5 +462,18 @@ void loop() {
   if (esp_now_connected)
     Serial.printf("模式：%d，左转：%d，右转：%d，电推：%d，反向：%d，步进电机转速：%d\n", currentMode, footPad.stepData[0], footPad.stepData[1], footPad.stepData[2], footPad.stepData[3], footPad.stepSpeed);
   delay(500);
+#endif
+
+#if TEST
+  static bool isPrinted = false;
+  if (esp_now_connected && isPrinted) {
+    Serial.println("连接");
+    isPrinted = false;
+  }
+  if (!isPrinted && !esp_now_connected) {
+    Serial.println("掉线");
+    isPrinted = true;
+  }
+  delay(100);
 #endif
 }
