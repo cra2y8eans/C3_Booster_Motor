@@ -48,7 +48,9 @@ struct FootPad {
 };
 FootPad footPad;
 
-bool esp_now_connected;
+volatile bool esp_now_connected, sendSucceed;
+unsigned long lastRecvTime = 0;
+#define RECV_TIMEOUT 500 // 接收超时时间，单位毫秒
 
 /*----------------------------------------------- 操控模式 -----------------------------------------------*/
 
@@ -103,9 +105,9 @@ uint32_t          yellow = myRGB.Color(255, 40, 0); // 黄色
 void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
   // 如果发送成功
   if (status == ESP_NOW_SEND_SUCCESS) {
-    if (!esp_now_connected) esp_now_connected = true;
+    if (!sendSucceed) sendSucceed = true;
   } else {
-    esp_now_connected = false;
+    sendSucceed = false;
   }
 #if DEBUG
   status == ESP_NOW_SEND_SUCCESS ? Serial.println("数据发送回调函数：数据发送成功") : Serial.println("数据发送回调函数：数据发送失败");
@@ -115,6 +117,7 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
 // 收到消息后的回调
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
   memcpy(&footPad, incomingData, sizeof(footPad));
+  lastRecvTime = millis();
 }
 
 /**  蜂鸣器
@@ -219,23 +222,17 @@ void esp_now_connect() {
 
 // 消抖读取当前模式
 Mode readCurrentModeWithDebounce() {
-  if (esp_now_connected) {
-    int readHand_1 = digitalRead(ONHAND);
-    int readFoot_1 = digitalRead(ONFOOT);
-    vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
-    int readHand_2 = digitalRead(ONHAND);
-    int readFoot_2 = digitalRead(ONFOOT);
+  int readHand_1 = digitalRead(ONHAND);
+  int readFoot_1 = digitalRead(ONFOOT);
+  vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
+  int readHand_2 = digitalRead(ONHAND);
+  int readFoot_2 = digitalRead(ONFOOT);
 
-    if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) return lastMode; // 如果两次读取的值不一样，说明有抖动，返回上次的模式
-    if (readHand_1 == LOW && readFoot_1 == HIGH) return HAND_MODE;             // 手控模式
-    if (readHand_1 == HIGH && readFoot_1 == LOW) return FOOT_MODE;             // 脚控模式
-    if (readHand_1 == HIGH && readFoot_1 == HIGH) return CRUISE_MODE;          // 巡航模式
-  } else {
-    return STANDBY_MODE; // 如果断线，返回待机模式
-#if DEBUG
-    Serial.println("消抖读取函数：ESP NOW 断线，返回待机模式");
-#endif
-  }
+  if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) return lastMode; // 如果两次读取的值不一样，说明有抖动，返回上次的模式
+  if (readHand_1 == LOW && readFoot_1 == HIGH) return HAND_MODE;             // 手控模式
+  if (readHand_1 == HIGH && readFoot_1 == LOW) return FOOT_MODE;             // 脚控模式
+  if (readHand_1 == HIGH && readFoot_1 == HIGH) return CRUISE_MODE;          // 巡航模式
+
   return HAND_MODE; // 默认返回手动模式
 }
 
@@ -276,7 +273,20 @@ void modeChangeOperation(Mode newMode) {
 // 模式更新和发送
 void modeChange(void* pt) {
   while (1) {
-    currentMode = readCurrentModeWithDebounce();
+
+    if (esp_now_connected) {
+      currentMode = readCurrentModeWithDebounce();
+    } else {
+      currentMode = STANDBY_MODE; // 如果断线，返回待机模式
+#if DEBUG
+      static unsigned long lastDebugTime = 0;
+      if (millis() - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
+        Serial.println("模式更新和发送：ESP NOW 断线，返回待机模式");
+        lastDebugTime = millis();
+      }
+#endif
+    }
+
     if (currentMode != lastMode) {
       booster.mode = currentMode; // 更新模式
       modeChangeOperation(currentMode);
@@ -284,6 +294,23 @@ void modeChange(void* pt) {
     }
     esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送模式数据给脚控
     vTaskDelay(5 / portTICK_PERIOD_MS);                                // 已有35ms的debounce时间，如果模式没有变化，则再延时5ms，将频率设定在25hz左右，避免CPU占用过高
+  }
+}
+
+// esp now连接监测任务
+void esp_now_connection(void* pvParameter) {
+  while (1) {
+    unsigned long currentTime = millis();
+    if (currentTime - lastRecvTime > RECV_TIMEOUT) {
+      esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送心跳包
+      esp_now_connected = false;
+#if DEBUG
+      sendSucceed == true ? Serial.println("esp now连接监测函数：ESP NOW 断线，发送心跳包成功") : Serial.println("esp now连接监测函数：ESP NOW 断线，发送心跳包失败");
+#endif
+    } else {
+      esp_now_connected = true;
+    }
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 }
 
@@ -392,20 +419,21 @@ void setup() {
 
   xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
-  Serial.println("setup:电推初始化完成");
+  xTaskCreate(esp_now_connection, "esp_now_connection", 1024 * 1, NULL, 1, NULL)
 #if DEBUG
+      Serial.println("setup:电推初始化完成");
 #endif
 }
 
 void loop() {
-  if (booster.mode == STANDBY_MODE) {
-    Serial.println("loop:进入待机模式，停止所有操作");
-    delay(200);
-  }
-  if (!esp_now_connected) {
-    Serial.println("LOOP函数：ESP NOW 断线，返回待机模式");
-    delay(200);
-  }
+  // if (booster.mode == STANDBY_MODE) {
+  //   Serial.println("loop:进入待机模式，停止所有操作");
+  //   delay(200);
+  // }
+  // if (!esp_now_connected) {
+  //   Serial.println("LOOP函数：ESP NOW 断线，返回待机模式");
+  //   delay(200);
+  // }
 #if DEBUG
   esp_now_connected == true ? Serial.println("LOOP连接正常") : Serial.println("LOOP连接断开");
   Serial.printf("模式：%d，左转：%d，右转：%d，电推：%d，反向：%d，步进电机转速：%d\n", currentMode, footPad.stepData[0], footPad.stepData[1], footPad.stepData[2], footPad.stepData[3], footPad.stepSpeed);
