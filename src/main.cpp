@@ -112,9 +112,6 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
   } else {
     sendSucceed = false;
   }
-#if DEBUG
-  status == ESP_NOW_SEND_SUCCESS ? Serial.println("数据发送回调函数：数据发送成功") : Serial.println("数据发送回调函数：数据发送失败");
-#endif
 }
 
 // 收到消息后的回调
@@ -460,17 +457,9 @@ void setup() {
 }
 
 void loop() {
-  // if (booster.mode == STANDBY_MODE) {
-  //   Serial.println("loop:进入待机模式，停止所有操作");
-  //   delay(200);
-  // }
-  // if (!esp_now_connected) {
-  //   Serial.println("LOOP函数：ESP NOW 断线，返回待机模式");
-  //   delay(200);
-  // }
 #if DEBUG
-  esp_now_connected == true ? Serial.println("LOOP连接正常") : Serial.println("LOOP连接断开");
-  Serial.printf("模式：%d，左转：%d，右转：%d，电推：%d，反向：%d，步进电机转速：%d\n", currentMode, footPad.stepData[0], footPad.stepData[1], footPad.stepData[2], footPad.stepData[3], footPad.stepSpeed);
+  if (esp_now_connected)
+    Serial.printf("模式：%d，左转：%d，右转：%d，电推：%d，反向：%d，步进电机转速：%d\n", currentMode, footPad.stepData[0], footPad.stepData[1], footPad.stepData[2], footPad.stepData[3], footPad.stepSpeed);
   delay(500);
 #endif
 }
