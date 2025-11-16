@@ -16,7 +16,7 @@ ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
 #include <freertos/task.h>
 
 #define DEBUG 0
-#define TEST 1
+#define TEST 0
 
 /*----------------------------------------------- ESP NOW-----------------------------------------------*/
 
@@ -324,37 +324,42 @@ void esp_now_connection(void* pvParameter) {
 
 // 电推脚控
 void motor(void* pt) {
-  TickType_t       xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xPeriod       = pdMS_TO_TICKS(12.5); // 频率 80Hz → 周期为 1/80 = 0.0125 秒 = 12.5 毫秒
+  // TickType_t       xLastWakeTime = xTaskGetTickCount();
+  // const TickType_t xPeriod       = pdMS_TO_TICKS(12.5); // 频率 80Hz → 周期为 1/80 = 0.0125 秒 = 12.5 毫秒
   while (1) {
-    int                  stepSpeed = map(footPad.stepSpeed, 0, 4095, 100, 400);
-    bool                 left      = footPad.stepData[0];
-    bool                 right     = footPad.stepData[1];
-    bool                 motor     = footPad.stepData[2];
-    bool                 reverse   = footPad.stepData[3]; // 反向
+    int                  stepSpeed  = map(footPad.stepSpeed, 0, 4095, 3000, 600);
+    bool                 turnLeft   = footPad.stepData[0];
+    bool                 turnRight  = footPad.stepData[1];
+    bool                 motor      = footPad.stepData[2];
+    bool                 dirReverse = footPad.stepData[3]; // 反向
     static unsigned long lastOperationTime;
 
     switch (currentMode) {
     // 脚控模式,使能TMC2209，导通MOS管
     case FOOT_MODE:
-      digitalWrite(TMC2209_EN, LOW);
-      digitalWrite(MOS_STEP, HIGH);
-      digitalWrite(THROTTLE, motor ? LOW : HIGH);             // 输入上拉，踩油门输出低电平
-      if (left == 0 && right == 1) {                          // 左转按钮按下
-        lastOperationTime = millis();                         // 更新最后操作时间
-        digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      } else if (left == 1 && right == 0) {                   // 右转按钮按下
-        lastOperationTime = millis();                         // 更新最后操作时间
-        digitalWrite(TMC2209_DIRCTION, reverse ? LOW : HIGH); // 反向为假，右转变左转，输出低电平，逆时针旋转。反之输出高电平，顺时针旋转
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      } else if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
+      digitalWrite(THROTTLE, motor ? LOW : HIGH); // 输入上拉，踩油门输出低电平
+      if (millis() - lastOperationTime <= AUTO_DISABLE_DELAY) {
+        digitalWrite(MOS_STEP, HIGH);
+        digitalWrite(TMC2209_EN, LOW);
+        // 左转
+        if (!turnLeft && turnRight) {
+          lastOperationTime = millis();
+          digitalWrite(TMC2209_DIRCTION, HIGH);
+          digitalWrite(TMC2209_STEP, HIGH);
+          delayMicroseconds(stepSpeed);
+          digitalWrite(TMC2209_STEP, LOW);
+          delayMicroseconds(stepSpeed);
+        }
+        // 右转
+        if (turnLeft && !turnRight) {
+          lastOperationTime = millis();
+          digitalWrite(TMC2209_DIRCTION, LOW);
+          digitalWrite(TMC2209_STEP, HIGH);
+          delayMicroseconds(stepSpeed);
+          digitalWrite(TMC2209_STEP, LOW);
+          delayMicroseconds(stepSpeed);
+        }
+      } else {
         digitalWrite(TMC2209_EN, HIGH);
         digitalWrite(MOS_STEP, LOW);
       }
@@ -365,16 +370,27 @@ void motor(void* pt) {
       digitalWrite(TMC2209_EN, LOW);
       digitalWrite(MOS_STEP, HIGH);
       digitalWrite(THROTTLE, HIGH);
-      if (left == 0 && right == 1) {                          // 左转按钮按下
-        lastOperationTime = millis();                         // 更新最后操作时间
-        digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
+      // 左转
+      if (turnLeft == 0 && turnRight == 1) {
+        lastOperationTime = millis();
+        if (dirReverse) {
+          digitalWrite(TMC2209_DIRCTION, LOW);
+        } else {
+          digitalWrite(TMC2209_DIRCTION, HIGH);
+        }
         digitalWrite(TMC2209_STEP, HIGH);
         delayMicroseconds(stepSpeed);
         digitalWrite(TMC2209_STEP, LOW);
         delayMicroseconds(stepSpeed);
-      } else if (left == 1 && right == 0) {                   // 右转按钮按下
-        lastOperationTime = millis();                         // 更新最后操作时间
-        digitalWrite(TMC2209_DIRCTION, reverse ? LOW : HIGH); // 反向为假，右转变左转，输出低电平，逆时针旋转。反之输出高电平，顺时针旋转
+      }
+      // 右转
+      else if (turnLeft == 1 && turnRight == 0) {
+        lastOperationTime = millis();
+        if (dirReverse) {
+          digitalWrite(TMC2209_DIRCTION, HIGH);
+        } else {
+          digitalWrite(TMC2209_DIRCTION, LOW);
+        }
         digitalWrite(TMC2209_STEP, HIGH);
         delayMicroseconds(stepSpeed);
         digitalWrite(TMC2209_STEP, LOW);
@@ -401,7 +417,7 @@ void motor(void* pt) {
     default:
       break;
     }
-    vTaskDelayUntil(&xLastWakeTime, xPeriod);
+    // vTaskDelayUntil(&xLastWakeTime, xPeriod);
   }
 }
 
@@ -438,9 +454,9 @@ void setup() {
      1   1   0          1/8微步
      1   1   1          1/16微步
   */
-  digitalWrite(TMC2209_MS1, 0); // 1微步
-  digitalWrite(TMC2209_MS2, 0); // 1微步
-  digitalWrite(TMC2209_MS3, 0); // 1微步
+  digitalWrite(TMC2209_MS1, 0);
+  digitalWrite(TMC2209_MS2, 0);
+  digitalWrite(TMC2209_MS3, 0);
 
   myRGB.begin();
   myRGB.setBrightness(STANDARD_BRIGHTNESS);
@@ -459,12 +475,6 @@ void setup() {
 
 void loop() {
 #if DEBUG
-  if (esp_now_connected)
-    Serial.printf("模式：%d，左转：%d，右转：%d，电推：%d，反向：%d，步进电机转速：%d\n", currentMode, footPad.stepData[0], footPad.stepData[1], footPad.stepData[2], footPad.stepData[3], footPad.stepSpeed);
-  delay(500);
-#endif
-
-#if TEST
   static bool isPrinted = false;
   if (esp_now_connected && isPrinted) {
     Serial.println("连接");
@@ -475,5 +485,11 @@ void loop() {
     isPrinted = true;
   }
   delay(100);
+#endif
+
+#if TEST
+  if (esp_now_connected)
+    Serial.printf("模式：%d，左转：%d，右转：%d，电推：%d，反向：%d，步进电机转速：%d\n", currentMode, footPad.stepData[0], footPad.stepData[1], footPad.stepData[2], footPad.stepData[3], map(footPad.stepSpeed, 0, 4095, 1000, 100));
+  delay(500);
 #endif
 }
