@@ -67,6 +67,9 @@ unsigned long lastRecvTime = 0;
 #define TMC2209_MS1 21
 #define TMC2209_MS2 2
 #define TMC2209_MS3 1
+#define AUTO_DISABLE_DELAY 60000 // 超时休眠，单位毫秒
+
+unsigned long lastOperationTime;
 
 /*----------------------------------------------- 蜂鸣器 -----------------------------------------------*/
 
@@ -271,9 +274,9 @@ void modeChangeOperation(Mode newMode) {
 }
 
 // 模式更新和发送
-void modeChange(void* pt) {
+void modeChange(void* pvParameter) {
   while (1) {
-
+    // 如果ESP NOW连接正常，则读取当前模式，否则返回待机模式
     if (esp_now_connected) {
       currentMode = readCurrentModeWithDebounce();
     } else {
@@ -286,7 +289,7 @@ void modeChange(void* pt) {
       }
 #endif
     }
-
+    // 如果当前模式和上次模式不一样，则更新模式和执行模式切换操作
     if (currentMode != lastMode) {
       booster.mode = currentMode; // 更新模式
       modeChangeOperation(currentMode);
@@ -300,18 +303,23 @@ void modeChange(void* pt) {
 // esp now连接监测任务
 void esp_now_connection(void* pvParameter) {
   while (1) {
-    if (millis() - lastRecvTime > RECV_TIMEOUT) {
-      esp_now_connected = false;
+    unsigned long currentTime = millis();
+    esp_now_connected         = (currentTime - lastRecvTime <= RECV_TIMEOUT);
 #if DEBUG
-      static unsigned long lastDebugTime = 0;
-      if (millis() - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
-        sendSucceed == true ? Serial.println("esp now连接监测函数：ESP NOW 断线，发送心跳包成功") : Serial.println("esp now连接监测函数：ESP NOW 断线，发送心跳包失败");
-        lastDebugTime = millis();
+    static unsigned long lastDebugTime = 0;
+    if (currentTime - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
+      if (esp_now_connected && sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 接收发送正常！");
+      } else if (esp_now_connected && !sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 接收成功，但发送异常！");
+      } else if (!esp_now_connected && sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 接收超时，但发送成功！");
+      } else if (!esp_now_connected && !sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 彻底断线！");
       }
-#endif
-    } else {
-      esp_now_connected = true;
+      lastDebugTime = currentTime;
     }
+#endif
     vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 }
@@ -321,11 +329,12 @@ void motor(void* pt) {
   TickType_t       xLastWakeTime = xTaskGetTickCount();
   const TickType_t xPeriod       = pdMS_TO_TICKS(12.5); // 频率 80Hz → 周期为 1/80 = 0.0125 秒 = 12.5 毫秒
   while (1) {
-    int  stepSpeed = map(footPad.stepSpeed, 0, 4095, 100, 400);
-    bool left      = footPad.stepData[0];
-    bool right     = footPad.stepData[1];
-    bool motor     = footPad.stepData[2];
-    bool reverse   = footPad.stepData[3]; // 反向
+    int                  stepSpeed = map(footPad.stepSpeed, 0, 4095, 100, 400);
+    bool                 left      = footPad.stepData[0];
+    bool                 right     = footPad.stepData[1];
+    bool                 motor     = footPad.stepData[2];
+    bool                 reverse   = footPad.stepData[3]; // 反向
+    static unsigned long lastOperationTime;
 
     switch (currentMode) {
     // 脚控模式,使能TMC2209，导通MOS管
@@ -334,18 +343,22 @@ void motor(void* pt) {
       digitalWrite(MOS_STEP, HIGH);
       digitalWrite(THROTTLE, motor ? LOW : HIGH);             // 输入上拉，踩油门输出低电平
       if (left == 0 && right == 1) {                          // 左转按钮按下
+        lastOperationTime = millis();                         // 更新最后操作时间
         digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
         digitalWrite(TMC2209_STEP, HIGH);
         delayMicroseconds(stepSpeed);
         digitalWrite(TMC2209_STEP, LOW);
         delayMicroseconds(stepSpeed);
-      }
-      if (left == 1 && right == 0) {                          // 右转按钮按下
+      } else if (left == 1 && right == 0) {                   // 右转按钮按下
+        lastOperationTime = millis();                         // 更新最后操作时间
         digitalWrite(TMC2209_DIRCTION, reverse ? LOW : HIGH); // 反向为假，右转变左转，输出低电平，逆时针旋转。反之输出高电平，顺时针旋转
         digitalWrite(TMC2209_STEP, HIGH);
         delayMicroseconds(stepSpeed);
         digitalWrite(TMC2209_STEP, LOW);
         delayMicroseconds(stepSpeed);
+      } else if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
+        digitalWrite(TMC2209_EN, HIGH);
+        digitalWrite(MOS_STEP, LOW);
       }
       break;
 
@@ -355,18 +368,22 @@ void motor(void* pt) {
       digitalWrite(MOS_STEP, HIGH);
       digitalWrite(THROTTLE, HIGH);
       if (left == 0 && right == 1) {                          // 左转按钮按下
+        lastOperationTime = millis();                         // 更新最后操作时间
         digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
         digitalWrite(TMC2209_STEP, HIGH);
         delayMicroseconds(stepSpeed);
         digitalWrite(TMC2209_STEP, LOW);
         delayMicroseconds(stepSpeed);
-      }
-      if (left == 1 && right == 0) {                          // 右转按钮按下
+      } else if (left == 1 && right == 0) {                   // 右转按钮按下
+        lastOperationTime = millis();                         // 更新最后操作时间
         digitalWrite(TMC2209_DIRCTION, reverse ? LOW : HIGH); // 反向为假，右转变左转，输出低电平，逆时针旋转。反之输出高电平，顺时针旋转
         digitalWrite(TMC2209_STEP, HIGH);
         delayMicroseconds(stepSpeed);
         digitalWrite(TMC2209_STEP, LOW);
         delayMicroseconds(stepSpeed);
+      } else if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
+        digitalWrite(TMC2209_EN, HIGH);
+        digitalWrite(MOS_STEP, LOW);
       }
       break;
 
@@ -396,7 +413,7 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(ONFOOT, INPUT_PULLUP);
-  pinMode(ONHAND, INPUT_PULLUP);
+  pinMode(ONHAND, INPUT);
 
   pinMode(THROTTLE, OUTPUT);
   pinMode(BUZZER, OUTPUT);
@@ -405,12 +422,27 @@ void setup() {
   pinMode(TMC2209_DIRCTION, OUTPUT);
   pinMode(TMC2209_STEP, OUTPUT);
   pinMode(TMC2209_EN, OUTPUT);
+  pinMode(TMC2209_MS1, OUTPUT);
+  pinMode(TMC2209_MS2, OUTPUT);
+  pinMode(TMC2209_MS3, OUTPUT);
 
   pinMode(WS2812_PIN, OUTPUT);
 
   digitalWrite(THROTTLE, LOW);
   digitalWrite(MOS_STEP, LOW);
   digitalWrite(TMC2209_EN, HIGH);
+
+  /*
+    MS1  MS2  MS3      步进模式
+     0   0   0          全步进
+     1   0   0          半步进
+     0   1   0          1/4微步
+     1   1   0          1/8微步
+     1   1   1          1/16微步
+  */
+  digitalWrite(TMC2209_MS1, 0); // 1微步
+  digitalWrite(TMC2209_MS2, 0); // 1微步
+  digitalWrite(TMC2209_MS3, 0); // 1微步
 
   myRGB.begin();
   myRGB.setBrightness(STANDARD_BRIGHTNESS);
@@ -421,9 +453,9 @@ void setup() {
 
   xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
-  xTaskCreate(esp_now_connection, "esp_now_connection", 1024 * 1, NULL, 1, NULL)
+  xTaskCreate(esp_now_connection, "esp_now_connection", 1024 * 1, NULL, 1, NULL);
 #if DEBUG
-      Serial.println("setup:电推初始化完成");
+  Serial.println("setup:电推初始化完成");
 #endif
 }
 
