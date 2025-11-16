@@ -293,19 +293,21 @@ void modeChange(void* pt) {
       lastMode = currentMode;
     }
     esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送模式数据给脚控
-    vTaskDelay(5 / portTICK_PERIOD_MS);                                // 已有35ms的debounce时间，如果模式没有变化，则再延时5ms，将频率设定在25hz左右，避免CPU占用过高
+    vTaskDelay(25 / portTICK_PERIOD_MS);                               // 已有35ms的debounce时间，如果模式没有变化，则再延时5ms，将频率设定在25hz左右，避免CPU占用过高
   }
 }
 
 // esp now连接监测任务
 void esp_now_connection(void* pvParameter) {
   while (1) {
-    unsigned long currentTime = millis();
-    if (currentTime - lastRecvTime > RECV_TIMEOUT) {
-      esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送心跳包
+    if (millis() - lastRecvTime > RECV_TIMEOUT) {
       esp_now_connected = false;
 #if DEBUG
-      sendSucceed == true ? Serial.println("esp now连接监测函数：ESP NOW 断线，发送心跳包成功") : Serial.println("esp now连接监测函数：ESP NOW 断线，发送心跳包失败");
+      static unsigned long lastDebugTime = 0;
+      if (millis() - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
+        sendSucceed == true ? Serial.println("esp now连接监测函数：ESP NOW 断线，发送心跳包成功") : Serial.println("esp now连接监测函数：ESP NOW 断线，发送心跳包失败");
+        lastDebugTime = millis();
+      }
 #endif
     } else {
       esp_now_connected = true;
