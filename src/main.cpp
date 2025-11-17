@@ -144,7 +144,6 @@ void buzzer(uint8_t times, int duration, int interval) {
  * @param     interval: 每次闪烁的间隔时间，单位毫秒
  * @param     color:    颜色值
  */
-
 void rgbBlink(uint8_t times, int duration, int interval, uint32_t color) {
   if (times == 1) interval = 0; // 如果只闪烁一次则不间隔
   for (int i = 0; i < times; i++) {
@@ -184,13 +183,6 @@ void esp_now_connect() {
     myRGB.show();
     vTaskDelay(500 / portTICK_PERIOD_MS);
     myRGB.clear();
-#if DEBUG
-    Serial.println("esp now初始化函数：ESP NOW 初始化成功");
-#endif
-  } else {
-#if DEBUG
-    Serial.println("esp now初始化函数：ESP NOW 初始化失败，正在重试...");
-#endif
     // 报警
     myRGB.clear();
     myRGB.setPixelColor(0, red);
@@ -200,9 +192,6 @@ void esp_now_connect() {
     while (!reconnect_3_times) {
       for (int i = 0; i < 3; i++) {
         buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
-#if DEBUG
-        Serial.printf("esp now初始化函数：重试第 %d 次...\n", i + 1);
-#endif
         esp_now_init();                                // 初始化ESP NOW
         esp_now_register_send_cb(OnDataSent);          // 注册发送成功的回调函数
         esp_now_register_recv_cb(OnDataRecv);          // 注册接受数据后的回调函数
@@ -214,9 +203,6 @@ void esp_now_connect() {
       // 如果3次重试都失败，则退出循环
       reconnect_3_times = true;
       esp_now_connected = false;
-#if DEBUG
-      Serial.println("esp now初始化函数：ESP NOW 重试失败");
-#endif
     }
   }
 }
@@ -264,11 +250,6 @@ void modeChangeOperation(Mode newMode) {
     break;
   }
   myRGB.show();
-#if DEBUG
-  const char* modeNames[] = { "手动模式", "脚控模式", "巡航模式", "待机模式" };
-  Serial.print("模式切换函数：");
-  Serial.println(modeNames[newMode]);
-#endif
 }
 
 // 模式更新和发送
@@ -279,13 +260,6 @@ void modeChange(void* pvParameter) {
       currentMode = readCurrentModeWithDebounce();
     } else {
       currentMode = STANDBY_MODE; // 如果断线，返回待机模式
-#if DEBUG
-      static unsigned long lastDebugTime = 0;
-      if (millis() - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
-        Serial.println("模式更新和发送：ESP NOW 断线，返回待机模式");
-        lastDebugTime = millis();
-      }
-#endif
     }
     // 如果当前模式和上次模式不一样，则更新模式和执行模式切换操作
     if (currentMode != lastMode) {
@@ -303,29 +277,12 @@ void esp_now_connection(void* pvParameter) {
   while (1) {
     unsigned long currentTime = millis();
     esp_now_connected         = (currentTime - lastRecvTime <= RECV_TIMEOUT);
-#if DEBUG
-    static unsigned long lastDebugTime = 0;
-    if (currentTime - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
-      if (esp_now_connected && sendSucceed) {
-        Serial.println("连接检测任务：ESP NOW 接收发送正常！");
-      } else if (esp_now_connected && !sendSucceed) {
-        Serial.println("连接检测任务：ESP NOW 接收成功，但发送异常！");
-      } else if (!esp_now_connected && sendSucceed) {
-        Serial.println("连接检测任务：ESP NOW 接收超时，但发送成功！");
-      } else if (!esp_now_connected && !sendSucceed) {
-        Serial.println("连接检测任务：ESP NOW 彻底断线！");
-      }
-      lastDebugTime = currentTime;
-    }
-#endif
     vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 }
 
 // 电推脚控
 void motor(void* pt) {
-  // TickType_t       xLastWakeTime = xTaskGetTickCount();
-  // const TickType_t xPeriod       = pdMS_TO_TICKS(12.5); // 频率 80Hz → 周期为 1/80 = 0.0125 秒 = 12.5 毫秒
   while (1) {
     int                  stepSpeed  = map(footPad.stepSpeed, 0, 4095, 3000, 600);
     bool                 turnLeft   = footPad.stepData[0];
@@ -333,7 +290,6 @@ void motor(void* pt) {
     bool                 motor      = footPad.stepData[2];
     bool                 dirReverse = footPad.stepData[3]; // 反向
     static unsigned long lastOperationTime;
-
     switch (currentMode) {
     // 脚控模式,使能TMC2209，导通MOS管
     case FOOT_MODE:
@@ -468,28 +424,7 @@ void setup() {
   xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
   xTaskCreate(esp_now_connection, "esp_now_connection", 1024 * 1, NULL, 1, NULL);
-#if DEBUG
-  Serial.println("setup:电推初始化完成");
-#endif
 }
 
 void loop() {
-#if DEBUG
-  static bool isPrinted = false;
-  if (esp_now_connected && isPrinted) {
-    Serial.println("连接");
-    isPrinted = false;
-  }
-  if (!isPrinted && !esp_now_connected) {
-    Serial.println("掉线");
-    isPrinted = true;
-  }
-  delay(100);
-#endif
-
-#if TEST
-  if (esp_now_connected)
-    Serial.printf("模式：%d，左转：%d，右转：%d，电推：%d，反向：%d，步进电机转速：%d\n", currentMode, footPad.stepData[0], footPad.stepData[1], footPad.stepData[2], footPad.stepData[3], map(footPad.stepSpeed, 0, 4095, 1000, 100));
-  delay(500);
-#endif
 }
