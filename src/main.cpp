@@ -282,7 +282,7 @@ void esp_now_connection(void* pvParameter) {
 }
 
 // 电推脚控
-void motor(void* pt) {
+void motor(void* pvParameter) {
   while (1) {
     int                  stepSpeed  = map(footPad.stepSpeed, 0, 4095, 3000, 600);
     bool                 turnLeft   = footPad.stepData[0];
@@ -300,7 +300,8 @@ void motor(void* pt) {
         // 左转
         if (!turnLeft && turnRight) {
           lastOperationTime = millis();
-          digitalWrite(TMC2209_DIRCTION, HIGH);
+          digitalWrite(TMC2209_DIRCTION, dirReverse ? LOW : HIGH); // 高电平顺时针旋转，大齿则逆时针旋转
+          // digitalWrite(TMC2209_DIRCTION, HIGH);
           digitalWrite(TMC2209_STEP, HIGH);
           delayMicroseconds(stepSpeed);
           digitalWrite(TMC2209_STEP, LOW);
@@ -309,7 +310,8 @@ void motor(void* pt) {
         // 右转
         if (turnLeft && !turnRight) {
           lastOperationTime = millis();
-          digitalWrite(TMC2209_DIRCTION, LOW);
+          digitalWrite(TMC2209_DIRCTION, dirReverse ? HIGH : LOW); // 低电平逆时针旋转，大齿则顺时针旋转
+          // digitalWrite(TMC2209_DIRCTION, LOW);
           digitalWrite(TMC2209_STEP, HIGH);
           delayMicroseconds(stepSpeed);
           digitalWrite(TMC2209_STEP, LOW);
@@ -321,43 +323,39 @@ void motor(void* pt) {
       }
       break;
 
-      // 巡航模式
+    // 巡航模式
     case CRUISE_MODE:
-      digitalWrite(TMC2209_EN, LOW);
-      digitalWrite(MOS_STEP, HIGH);
       digitalWrite(THROTTLE, HIGH);
-      // 左转
-      if (turnLeft == 0 && turnRight == 1) {
-        lastOperationTime = millis();
-        if (dirReverse) {
-          digitalWrite(TMC2209_DIRCTION, LOW);
-        } else {
-          digitalWrite(TMC2209_DIRCTION, HIGH);
+      if (millis() - lastOperationTime <= AUTO_DISABLE_DELAY) {
+        digitalWrite(MOS_STEP, HIGH);
+        digitalWrite(TMC2209_EN, LOW);
+        // 左转
+        if (!turnLeft && turnRight) {
+          lastOperationTime = millis();
+          digitalWrite(TMC2209_DIRCTION, dirReverse ? LOW : HIGH); // 高电平顺时针旋转，大齿则逆时针旋转
+          // digitalWrite(TMC2209_DIRCTION, HIGH);
+          digitalWrite(TMC2209_STEP, HIGH);
+          delayMicroseconds(stepSpeed);
+          digitalWrite(TMC2209_STEP, LOW);
+          delayMicroseconds(stepSpeed);
         }
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      }
-      // 右转
-      else if (turnLeft == 1 && turnRight == 0) {
-        lastOperationTime = millis();
-        if (dirReverse) {
-          digitalWrite(TMC2209_DIRCTION, HIGH);
-        } else {
-          digitalWrite(TMC2209_DIRCTION, LOW);
+        // 右转
+        if (turnLeft && !turnRight) {
+          lastOperationTime = millis();
+          digitalWrite(TMC2209_DIRCTION, dirReverse ? HIGH : LOW); // 低电平逆时针旋转，大齿则顺时针旋转
+          // digitalWrite(TMC2209_DIRCTION, LOW);
+          digitalWrite(TMC2209_STEP, HIGH);
+          delayMicroseconds(stepSpeed);
+          digitalWrite(TMC2209_STEP, LOW);
+          delayMicroseconds(stepSpeed);
         }
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      } else if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
+      } else {
         digitalWrite(TMC2209_EN, HIGH);
         digitalWrite(MOS_STEP, LOW);
       }
       break;
 
-      // 手控模式
+    // 手控模式
     case HAND_MODE:
       digitalWrite(THROTTLE, HIGH);   // 电机常开
       digitalWrite(TMC2209_EN, HIGH); // 关闭步进电机控制板
@@ -373,7 +371,6 @@ void motor(void* pt) {
     default:
       break;
     }
-    // vTaskDelayUntil(&xLastWakeTime, xPeriod);
   }
 }
 
@@ -382,8 +379,8 @@ void motor(void* pt) {
 void setup() {
   Serial.begin(115200);
 
-  pinMode(ONFOOT, INPUT_PULLUP);
-  pinMode(ONHAND, INPUT);
+  pinMode(ONFOOT, INPUT); // 上电毛刺，外部上拉
+  pinMode(ONHAND, INPUT); // boot引脚，外部上拉
 
   pinMode(THROTTLE, OUTPUT);
   pinMode(BUZZER, OUTPUT);
