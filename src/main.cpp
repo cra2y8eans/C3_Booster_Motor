@@ -294,21 +294,22 @@ void motor(void* pvParameter) {
     // 脚控模式,使能TMC2209，导通MOS管
     case FOOT_MODE:
       digitalWrite(THROTTLE, motor ? LOW : HIGH); // 输入上拉，踩油门输出低电平
-      if (millis() - lastOperationTime <= AUTO_DISABLE_DELAY) {
+      // 左转
+      if (!turnLeft && turnRight) {
         digitalWrite(MOS_STEP, HIGH);
         digitalWrite(TMC2209_EN, LOW);
-        // 左转
-        if (!turnLeft && turnRight) {
-          lastOperationTime = millis();
-          digitalWrite(TMC2209_DIRCTION, dirReverse ? LOW : HIGH); // 高电平顺时针旋转，大齿则逆时针旋转
-          // digitalWrite(TMC2209_DIRCTION, HIGH);
-          digitalWrite(TMC2209_STEP, HIGH);
-          delayMicroseconds(stepSpeed);
-          digitalWrite(TMC2209_STEP, LOW);
-          delayMicroseconds(stepSpeed);
-        }
+        lastOperationTime = millis();
+        digitalWrite(TMC2209_DIRCTION, dirReverse ? LOW : HIGH); // 高电平顺时针旋转，大齿则逆时针旋转
+        // digitalWrite(TMC2209_DIRCTION, HIGH);
+        digitalWrite(TMC2209_STEP, HIGH);
+        delayMicroseconds(stepSpeed);
+        digitalWrite(TMC2209_STEP, LOW);
+        delayMicroseconds(stepSpeed);
+      } else
         // 右转
         if (turnLeft && !turnRight) {
+          digitalWrite(MOS_STEP, HIGH);
+          digitalWrite(TMC2209_EN, LOW);
           lastOperationTime = millis();
           digitalWrite(TMC2209_DIRCTION, dirReverse ? HIGH : LOW); // 低电平逆时针旋转，大齿则顺时针旋转
           // digitalWrite(TMC2209_DIRCTION, LOW);
@@ -317,7 +318,7 @@ void motor(void* pvParameter) {
           digitalWrite(TMC2209_STEP, LOW);
           delayMicroseconds(stepSpeed);
         }
-      } else {
+      if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
         digitalWrite(TMC2209_EN, HIGH);
         digitalWrite(MOS_STEP, LOW);
       }
@@ -326,21 +327,22 @@ void motor(void* pvParameter) {
     // 巡航模式
     case CRUISE_MODE:
       digitalWrite(THROTTLE, HIGH);
-      if (millis() - lastOperationTime <= AUTO_DISABLE_DELAY) {
+      // 左转
+      if (!turnLeft && turnRight) {
         digitalWrite(MOS_STEP, HIGH);
         digitalWrite(TMC2209_EN, LOW);
-        // 左转
-        if (!turnLeft && turnRight) {
-          lastOperationTime = millis();
-          digitalWrite(TMC2209_DIRCTION, dirReverse ? LOW : HIGH); // 高电平顺时针旋转，大齿则逆时针旋转
-          // digitalWrite(TMC2209_DIRCTION, HIGH);
-          digitalWrite(TMC2209_STEP, HIGH);
-          delayMicroseconds(stepSpeed);
-          digitalWrite(TMC2209_STEP, LOW);
-          delayMicroseconds(stepSpeed);
-        }
+        lastOperationTime = millis();
+        digitalWrite(TMC2209_DIRCTION, dirReverse ? LOW : HIGH); // 高电平顺时针旋转，大齿则逆时针旋转
+        // digitalWrite(TMC2209_DIRCTION, HIGH);
+        digitalWrite(TMC2209_STEP, HIGH);
+        delayMicroseconds(stepSpeed);
+        digitalWrite(TMC2209_STEP, LOW);
+        delayMicroseconds(stepSpeed);
+      } else
         // 右转
         if (turnLeft && !turnRight) {
+          digitalWrite(MOS_STEP, HIGH);
+          digitalWrite(TMC2209_EN, LOW);
           lastOperationTime = millis();
           digitalWrite(TMC2209_DIRCTION, dirReverse ? HIGH : LOW); // 低电平逆时针旋转，大齿则顺时针旋转
           // digitalWrite(TMC2209_DIRCTION, LOW);
@@ -349,7 +351,7 @@ void motor(void* pvParameter) {
           digitalWrite(TMC2209_STEP, LOW);
           delayMicroseconds(stepSpeed);
         }
-      } else {
+      if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
         digitalWrite(TMC2209_EN, HIGH);
         digitalWrite(MOS_STEP, LOW);
       }
