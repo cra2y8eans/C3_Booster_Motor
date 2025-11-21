@@ -62,7 +62,7 @@ unsigned long lastRecvTime = 0;
 /*----------------------------------------------- 步进电机 -----------------------------------------------*/
 
 #define MOS_STEP 5
-#define TMC2209_DIRCTION 4
+#define TMC2209_DIRECTION 4
 #define TMC2209_STEP 0
 #define TMC2209_EN 10
 #define TMC2209_MS1 21
@@ -70,7 +70,7 @@ unsigned long lastRecvTime = 0;
 #define TMC2209_MS3 1
 #define AUTO_DISABLE_DELAY 60000 // 超时休眠，单位毫秒
 
-unsigned long lastOperationTime;
+unsigned long lastOperationTime = 0;
 
 /*----------------------------------------------- 蜂鸣器 -----------------------------------------------*/
 
@@ -94,10 +94,10 @@ unsigned long lastOperationTime;
 uint16_t brightness; // 动态亮度
 
 Adafruit_NeoPixel myRGB(1, WS2812_PIN, NEO_GRB + NEO_KHZ800);
-uint32_t          red    = myRGB.Color(255, 0, 0);  // 红色
-uint32_t          green  = myRGB.Color(0, 255, 0);  // 绿色
-uint32_t          blue   = myRGB.Color(0, 0, 255);  // 蓝色
-uint32_t          yellow = myRGB.Color(255, 40, 0); // 黄色
+int               red    = myRGB.Color(255, 0, 0);  // 红色
+int               green  = myRGB.Color(0, 255, 0);  // 绿色
+int               blue   = myRGB.Color(0, 0, 255);  // 蓝色
+int               yellow = myRGB.Color(255, 40, 0); // 黄色
 
 /*----------------------------------------------- 电机 -----------------------------------------------*/
 
@@ -138,14 +138,13 @@ void buzzer(uint8_t times, int duration, int interval) {
 }
 
 /**  指示灯
- * @brief     RGB通用函数
+ * @brief     适用于单个颜色闪烁
  * @param     times:    闪烁次数
  * @param     duration: 持续时间，单位毫秒
  * @param     interval: 每次闪烁的间隔时间，单位毫秒
  * @param     color:    颜色值
  */
-
-void rgbBlink(uint8_t times, int duration, int interval, uint32_t color) {
+void rgbBlink(int times, int duration, int interval, int color) {
   if (times == 1) interval = 0; // 如果只闪烁一次则不间隔
   for (int i = 0; i < times; i++) {
     myRGB.clear();
@@ -157,9 +156,25 @@ void rgbBlink(uint8_t times, int duration, int interval, uint32_t color) {
     vTaskDelay(interval / portTICK_PERIOD_MS);
   }
 }
+// 多色闪烁
+void mutipleColorBlink(int colors[], int duration, int interval) {
+  int times = sizeof(colors) / sizeof(colors[0]);
+  for (int i = 0; i < times; i++) {
+    myRGB.clear();
+    myRGB.setPixelColor(0, colors[i]);
+    myRGB.show();
+    vTaskDelay(duration / portTICK_PERIOD_MS);
+    myRGB.clear();
+    myRGB.show();
+    vTaskDelay(interval / portTICK_PERIOD_MS);
+  }
+  myRGB.clear();
+  myRGB.show();
+}
 
 // ESP NOW
 void esp_now_connect() {
+  int colors[] = { red, green, blue };
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   if (esp_now_init() == ESP_OK) {
@@ -183,19 +198,7 @@ void esp_now_connect() {
       if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) == ESP_OK) {
         esp_now_connected = true;
         // 成功指示灯提示
-        myRGB.clear();
-        myRGB.setPixelColor(0, red);
-        myRGB.show();
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        myRGB.clear();
-        myRGB.setPixelColor(0, green);
-        myRGB.show();
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        myRGB.clear();
-        myRGB.setPixelColor(0, blue);
-        myRGB.show();
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        myRGB.clear();
+        mutipleColorBlink(colors, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
         buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
 #if DEBUG
         Serial.println("ESP NOW 初始化成功");
@@ -232,26 +235,14 @@ void esp_now_connect() {
         reconnectSuccess  = true;
         esp_now_connected = true;
         // 成功指示灯提示
-        myRGB.clear();
-        myRGB.setPixelColor(0, red);
-        myRGB.show();
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        myRGB.clear();
-        myRGB.setPixelColor(0, green);
-        myRGB.show();
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        myRGB.clear();
-        myRGB.setPixelColor(0, blue);
-        myRGB.show();
-        vTaskDelay(500 / portTICK_PERIOD_MS);
-        myRGB.clear();
+        mutipleColorBlink(colors, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
         buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
 #if DEBUG
         Serial.printf("重连第 %d 次成功\n", i + 1);
 #endif
         return; // 跳出for循环（可以理解为找到要找到的答案了）
       } else {
-        reconnectSuccess  = false;
+        reconnectSuccess = false;
       }
     }
     if (!reconnectSuccess) {
@@ -365,99 +356,71 @@ void esp_now_connection(void* pvParameter) {
   }
 }
 
+// 控制板使能，通电
+void stepper_enable(void) {
+  digitalWrite(TMC2209_EN, LOW);
+  digitalWrite(MOS_STEP, HIGH);
+  lastOperationTime = millis();
+}
+// 控制板禁用，断电
+void stepper_disable(void) {
+  digitalWrite(TMC2209_EN, HIGH);
+  digitalWrite(MOS_STEP, LOW);
+}
+// 步进
+void stepper_pulse(int stepSpeed) {
+  digitalWrite(TMC2209_STEP, HIGH);
+  delayMicroseconds(stepSpeed);
+  digitalWrite(TMC2209_STEP, LOW);
+  delayMicroseconds(stepSpeed);
+}
+
+// 统一的步进电机控制函数
+void stepper_control(bool turnLeft, bool turnRight, bool dirReverse, int stepSpeed) {
+  if (!turnLeft && turnRight) {
+    // 右转
+    digitalWrite(TMC2209_DIRECTION, dirReverse ? LOW : HIGH);
+    stepper_enable();
+    stepper_pulse(stepSpeed);
+  } else if (turnLeft && !turnRight) {
+    // 左转
+    digitalWrite(TMC2209_DIRECTION, dirReverse ? HIGH : LOW);
+    stepper_enable();
+    stepper_pulse(stepSpeed);
+  }
+
+  // 自动休眠检查
+  if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
+    stepper_disable();
+  }
+}
+
 // 电推脚控
-void motor(void* pt) {
+void motor(void* pvParameter) {
   while (1) {
-    int                  stepSpeed  = map(footPad.stepSpeed, 0, 4095, 3000, 1000);
-    bool                 turnLeft   = footPad.stepData[0];
-    bool                 turnRight  = footPad.stepData[1];
-    bool                 motor      = footPad.stepData[2];
-    bool                 dirReverse = footPad.stepData[3]; // 反向
-    static unsigned long lastOperationTime;
+    int  stepSpeed  = map(footPad.stepSpeed, 0, 4095, 4000, 1000);
+    bool turnLeft   = footPad.stepData[0];
+    bool turnRight  = footPad.stepData[1];
+    bool motor      = footPad.stepData[2];
+    bool dirReverse = footPad.stepData[3]; // 反向
 
     switch (currentMode) {
-    // 脚控模式,使能TMC2209，导通MOS管
-    case FOOT_MODE:
-      digitalWrite(THROTTLE, motor ? LOW : HIGH); // 输入上拉，踩油门输出低电平
-      // 左转
-      if (!turnLeft && turnRight) {
-        digitalWrite(MOS_STEP, HIGH);
-        digitalWrite(TMC2209_EN, LOW);
-        lastOperationTime = millis();
-        digitalWrite(TMC2209_DIRCTION, dirReverse ? LOW : HIGH); // 高电平顺时针旋转，大齿则逆时针旋转
-        // digitalWrite(TMC2209_DIRCTION, HIGH);
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      } else
-        // 右转
-        if (turnLeft && !turnRight) {
-          digitalWrite(MOS_STEP, HIGH);
-          digitalWrite(TMC2209_EN, LOW);
-          lastOperationTime = millis();
-          digitalWrite(TMC2209_DIRCTION, dirReverse ? HIGH : LOW); // 低电平逆时针旋转，大齿则顺时针旋转
-          // digitalWrite(TMC2209_DIRCTION, LOW);
-          digitalWrite(TMC2209_STEP, HIGH);
-          delayMicroseconds(stepSpeed);
-          digitalWrite(TMC2209_STEP, LOW);
-          delayMicroseconds(stepSpeed);
-        }
-      if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
-        digitalWrite(TMC2209_EN, HIGH);
-        digitalWrite(MOS_STEP, LOW);
-      }
+    case FOOT_MODE: // 脚控模式
+      digitalWrite(THROTTLE, motor ? LOW : HIGH);
+      stepper_control(turnLeft, turnRight, dirReverse, stepSpeed);
       break;
-
-      // 巡航模式
-    case CRUISE_MODE:
+    case CRUISE_MODE: // 巡航模式
       digitalWrite(THROTTLE, HIGH);
-      // 左转
-      if (!turnLeft && turnRight) {
-        digitalWrite(MOS_STEP, HIGH);
-        digitalWrite(TMC2209_EN, LOW);
-        lastOperationTime = millis();
-        digitalWrite(TMC2209_DIRCTION, dirReverse ? LOW : HIGH); // 高电平顺时针旋转，大齿则逆时针旋转
-        // digitalWrite(TMC2209_DIRCTION, HIGH);
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      } else
-        // 右转
-        if (turnLeft && !turnRight) {
-          digitalWrite(MOS_STEP, HIGH);
-          digitalWrite(TMC2209_EN, LOW);
-          lastOperationTime = millis();
-          digitalWrite(TMC2209_DIRCTION, dirReverse ? HIGH : LOW); // 低电平逆时针旋转，大齿则顺时针旋转
-          // digitalWrite(TMC2209_DIRCTION, LOW);
-          digitalWrite(TMC2209_STEP, HIGH);
-          delayMicroseconds(stepSpeed);
-          digitalWrite(TMC2209_STEP, LOW);
-          delayMicroseconds(stepSpeed);
-        }
-      if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
-        digitalWrite(TMC2209_EN, HIGH);
-        digitalWrite(MOS_STEP, LOW);
-      }
+      stepper_control(turnLeft, turnRight, dirReverse, stepSpeed);
       break;
-
-      // 手控模式
     case HAND_MODE:
-      digitalWrite(THROTTLE, HIGH);   // 电机常开
-      digitalWrite(TMC2209_EN, HIGH); // 关闭步进电机控制板
-      digitalWrite(MOS_STEP, LOW);    // 关闭步进电机电源
-      break;
+    case STANDBY_MODE: // 手控模式和待机模式
 
-    // 待机模式
-    case STANDBY_MODE:
-      digitalWrite(THROTTLE, HIGH);   // 电机常开
-      digitalWrite(TMC2209_EN, HIGH); // 关闭步进电机控制
-      digitalWrite(MOS_STEP, LOW);
-      break;
-    default:
+      digitalWrite(THROTTLE, HIGH);
+      stepper_disable();
       break;
     }
+    vTaskDelay(1); // 让出CPU时间
   }
 }
 
@@ -465,7 +428,6 @@ void motor(void* pt) {
 
 void setup() {
   Serial.begin(115200);
-
   pinMode(ONFOOT, INPUT);
   pinMode(ONHAND, INPUT);
 
@@ -473,7 +435,7 @@ void setup() {
   pinMode(BUZZER, OUTPUT);
   pinMode(MOS_STEP, OUTPUT);
 
-  pinMode(TMC2209_DIRCTION, OUTPUT);
+  pinMode(TMC2209_DIRECTION, OUTPUT);
   pinMode(TMC2209_STEP, OUTPUT);
   pinMode(TMC2209_EN, OUTPUT);
   pinMode(TMC2209_MS1, OUTPUT);
@@ -505,8 +467,8 @@ void setup() {
   lastMode = readCurrentModeWithDebounce();
   modeChangeOperation(lastMode); // 上电时根据按键状态设置初始模式和灯光
 
-  xTaskCreate(modeChange, "modeChange", 1024 * 3, NULL, 1, NULL);
-  xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
+  xTaskCreate(modeChange, "modeChange", 1024 * 2, NULL, 1, NULL);
+  xTaskCreate(motor, "motor", 1024 * 3, NULL, 2, NULL);
   xTaskCreate(esp_now_connection, "esp_now_connection", 1024 * 1, NULL, 1, NULL);
 #if DEBUG
   Serial.println("setup:电推初始化完成");
