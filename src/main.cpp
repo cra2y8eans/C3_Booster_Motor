@@ -160,62 +160,105 @@ void rgbBlink(uint8_t times, int duration, int interval, uint32_t color) {
 
 // ESP NOW
 void esp_now_connect() {
-  WiFi.mode(WIFI_STA); // 设置wifi为STA模式
-  WiFi.begin();
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
   if (esp_now_init() == ESP_OK) {
-    // 初始化成功
-    esp_now_register_send_cb(OnDataSent); // 注册发送成功的回调函数
-    esp_now_register_recv_cb(OnDataRecv); // 注册接受数据后的回调函数
+    esp_now_register_send_cb(OnDataSent);
+    esp_now_register_recv_cb(OnDataRecv);
     // 注册通信频道
-    memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
-    peerInfo.channel = 1;                          // 设置通信频道
-    esp_now_add_peer(&peerInfo);                   // 添加通信对象
-    // 指示灯提示
-    myRGB.clear();
-    myRGB.setPixelColor(0, red);
-    myRGB.show();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    myRGB.clear();
-    myRGB.setPixelColor(0, green);
-    myRGB.show();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    myRGB.clear();
-    myRGB.setPixelColor(0, blue);
-    myRGB.show();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    myRGB.clear();
+    memcpy(peerInfo.peer_addr, FootPadAddress, 6);
+    peerInfo.channel = 1;
+    // 主初始化错误检查
+    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+      buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+      esp_now_connected = false;
+      myRGB.clear();
+      myRGB.setPixelColor(0, red);
+      myRGB.show();
 #if DEBUG
-    Serial.println("esp now初始化函数：ESP NOW 初始化成功");
+      Serial.println("添加peer失败");
 #endif
-  } else {
-#if DEBUG
-    Serial.println("esp now初始化函数：ESP NOW 初始化失败，正在重试...");
-#endif
-    // 报警
-    myRGB.clear();
-    myRGB.setPixelColor(0, red);
-    myRGB.show();
-    // 尝试重试3次
-    bool reconnect_3_times = false;
-    while (!reconnect_3_times) {
-      for (int i = 0; i < 3; i++) {
+    } else {
+      // 测试连接
+      if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) == ESP_OK) {
+        esp_now_connected = true;
+        // 成功指示灯提示
+        myRGB.clear();
+        myRGB.setPixelColor(0, red);
+        myRGB.show();
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        myRGB.clear();
+        myRGB.setPixelColor(0, green);
+        myRGB.show();
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        myRGB.clear();
+        myRGB.setPixelColor(0, blue);
+        myRGB.show();
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        myRGB.clear();
         buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
 #if DEBUG
-        Serial.printf("esp now初始化函数：重试第 %d 次...\n", i + 1);
+        Serial.println("ESP NOW 初始化成功");
 #endif
-        esp_now_init();                                // 初始化ESP NOW
-        esp_now_register_send_cb(OnDataSent);          // 注册发送成功的回调函数
-        esp_now_register_recv_cb(OnDataRecv);          // 注册接受数据后的回调函数
-        memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
-        peerInfo.channel = 1;                          // 设置通信频道
-        esp_now_add_peer(&peerInfo);                   // 添加通信对象
-        vTaskDelay(5000 / portTICK_PERIOD_MS);         // 延时5秒
+        return; // 成功就直接返回，不需要重连逻辑，直接跳出整个函数
+      } else {
+        esp_now_connected = false;
+        myRGB.clear();
+        myRGB.setPixelColor(0, red);
+        myRGB.show();
+        buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
       }
-      // 如果3次重试都失败，则退出循环
-      reconnect_3_times = true;
-      esp_now_connected = false;
+    }
+  } else {
+    esp_now_connected = false;
+  }
+  if (!esp_now_connected) {
 #if DEBUG
-      Serial.println("esp now初始化函数：ESP NOW 重试失败");
+    Serial.println("ESP NOW 初始化失败，正在重连...");
+#endif
+    // 尝试重连3次
+    bool reconnectSuccess = false;
+    for (int i = 0; i < 3; i++) {
+#if DEBUG
+      Serial.printf("重连第 %d 次...\n", i + 1);
+#endif
+      esp_now_init();
+      esp_now_register_send_cb(OnDataSent);
+      esp_now_register_recv_cb(OnDataRecv);
+      memcpy(peerInfo.peer_addr, FootPadAddress, 6);
+      peerInfo.channel = 1;
+      // 测试连接
+      if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) == ESP_OK) {
+        reconnectSuccess  = true;
+        esp_now_connected = true;
+        // 成功指示灯提示
+        myRGB.clear();
+        myRGB.setPixelColor(0, red);
+        myRGB.show();
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        myRGB.clear();
+        myRGB.setPixelColor(0, green);
+        myRGB.show();
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        myRGB.clear();
+        myRGB.setPixelColor(0, blue);
+        myRGB.show();
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        myRGB.clear();
+        buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
+#if DEBUG
+        Serial.printf("重连第 %d 次成功\n", i + 1);
+#endif
+        return; // 跳出for循环（可以理解为找到要找到的答案了）
+      } else {
+        reconnectSuccess  = false;
+      }
+    }
+    if (!reconnectSuccess) {
+      esp_now_connected = false;
+      buzzer(5, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL); // 长时间错误提示
+#if DEBUG
+      Serial.println("ESP NOW 重连失败");
 #endif
     }
   }
