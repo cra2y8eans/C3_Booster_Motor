@@ -60,6 +60,7 @@ unsigned long lastRecvTime = 0;
 #define AUTO_DISABLE_DELAY 60000 // 超时休眠，单位毫秒
 
 unsigned long lastOperationTime = 0;
+volatile bool isSleeped         = true; // 电机是否休眠；默认休眠。休眠时TMC2209_EN为高电平
 
 /*----------------------------------------------- 蜂鸣器 -----------------------------------------------*/
 
@@ -315,15 +316,6 @@ void esp_now_connection(void* pvParameter) {
   }
 }
 
-// 控制板使能
-void stepper_enable(void) {
-  digitalWrite(TMC2209_EN, LOW);
-  lastOperationTime = millis();
-}
-// 控制板禁用
-void stepper_disable(void) {
-  digitalWrite(TMC2209_EN, HIGH);
-}
 // 步进
 void stepper_pulse(int stepSpeed) {
   digitalWrite(TMC2209_STEP, HIGH);
@@ -336,19 +328,27 @@ void stepper_pulse(int stepSpeed) {
 void stepper_control(bool turnLeft, bool turnRight, bool dirReverse, int stepSpeed) {
   if (!turnLeft && turnRight) {
     // 右转
+    if (isSleeped) digitalWrite(TMC2209_EN, LOW); // 如果电机处于休眠状态，则先唤醒
     digitalWrite(TMC2209_DIRECTION, dirReverse ? LOW : HIGH);
-    stepper_enable();
+    lastOperationTime = millis();
     stepper_pulse(stepSpeed);
   } else if (turnLeft && !turnRight) {
     // 左转
+    if (isSleeped) digitalWrite(TMC2209_EN, LOW);
     digitalWrite(TMC2209_DIRECTION, dirReverse ? HIGH : LOW);
-    stepper_enable();
+    lastOperationTime = millis();
     stepper_pulse(stepSpeed);
   }
 
   // 自动休眠检查
   if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
-    stepper_disable();
+    digitalWrite(TMC2209_EN, HIGH);
+    isSleeped = true;
+#if DEBUG
+    Serial.println("步进电机自动休眠");
+#endif
+  } else {
+    isSleeped = false;
   }
 }
 
@@ -399,7 +399,6 @@ void motor(void* pvParameter) {
       break;
     case HAND_MODE:
     case STANDBY_MODE: // 手控模式和待机模式
-
       digitalWrite(THROTTLE, HIGH);
       stepper_disable();
       break;
