@@ -400,7 +400,7 @@ void motor(void* pvParameter) {
     case HAND_MODE:
     case STANDBY_MODE: // 手控模式和待机模式
       digitalWrite(THROTTLE, HIGH);
-      stepper_disable();
+      digitalWrite(TMC2209_EN, HIGH);
       break;
     }
     vTaskDelay(1); // 让出CPU时间
