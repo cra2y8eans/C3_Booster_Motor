@@ -1,13 +1,3 @@
-/***********************************************************************************************************************************************************
-
-ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
-
-        使用TMC2209驱动板驱动步进电机。
-        motor部分作为接收机，通过ESP NOW接收来自脚控的控制信号。
-
-
-************************************************************************************************************************************************************/
-
 #include <Adafruit_NeoPixel.h>
 #include <Arduino.h>
 #include <WiFi.h>
@@ -15,11 +5,13 @@ ESP32_C3 使用TMC2209驱动42步进电机实现电推脚控  分支：main
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#define DEBUG 1
+#define DEBUG 0
+#define TEST 0
 
 /*----------------------------------------------- ESP NOW-----------------------------------------------*/
 
-uint8_t FootPadAddress[] = { 0x9c, 0x13, 0x9e, 0x52, 0x6e, 0x80 }; // 测试板
+// uint8_t FootPadAddress[] = { 0x9c, 0x13, 0x9e, 0x52, 0x6e, 0x80 }; // 测试板
+uint8_t FootPadAddress[] = { 0x08, 0xa6, 0xf7, 0x1b, 0xb2, 0xcc };
 
 // 创建ESP NOW通讯实例
 esp_now_peer_info_t peerInfo;
@@ -47,24 +39,31 @@ struct FootPad {
 };
 FootPad footPad;
 
-volatile bool esp_now_connected;
+volatile bool esp_now_connected, sendSucceed;
+unsigned long lastRecvTime = 0;
+#define RECV_TIMEOUT 500 // 接收超时时间，单位毫秒
 
 /*----------------------------------------------- 操控模式 -----------------------------------------------*/
 
-#define ONFOOT 4
+#define ONFOOT 8
 #define ONHAND 5
-#define SWITCH_DEBOUNCE_DELAY 35 // 按键消抖延时，单位毫秒
+#define SWITCH_DEBOUNCE_DELAY 20 // 按键消抖延时，单位毫秒
 
 /*----------------------------------------------- 步进电机 -----------------------------------------------*/
 
-#define MOS_STEP 10
-#define TMC2209_DIRCTION 0
-#define TMC2209_STEP 1
-#define TMC2209_EN 2
+#define TMC2209_DIRECTION 4
+#define TMC2209_STEP 0
+#define TMC2209_EN 10
+#define TMC2209_MS1 21
+#define TMC2209_MS2 2
+#define TMC2209_MS3 1
+#define AUTO_DISABLE_DELAY 60000 // 超时休眠，单位毫秒
+
+unsigned long lastOperationTime = 0;
 
 /*----------------------------------------------- 蜂鸣器 -----------------------------------------------*/
 
-#define BUZZER 7
+#define BUZZER 3
 #define LONG_BEEP_DURATION 1000
 #define SHORT_BEEP_DURATION 200
 #define LONG_BEEP_INTERVAL 300
@@ -72,7 +71,7 @@ volatile bool esp_now_connected;
 
 /*----------------------------------------------- WS2812 -----------------------------------------------*/
 
-#define WS2812_PIN 3
+#define WS2812_PIN 7
 #define MAX_BRIGHTNESS 255
 #define MIN_BRIGHTNESS 0
 #define STANDARD_BRIGHTNESS 100
@@ -84,10 +83,10 @@ volatile bool esp_now_connected;
 uint16_t brightness; // 动态亮度
 
 Adafruit_NeoPixel myRGB(1, WS2812_PIN, NEO_GRB + NEO_KHZ800);
-uint32_t          red    = myRGB.Color(255, 0, 0);  // 红色
-uint32_t          green  = myRGB.Color(0, 255, 0);  // 绿色
-uint32_t          blue   = myRGB.Color(0, 0, 255);  // 蓝色
-uint32_t          yellow = myRGB.Color(255, 80, 0); // 黄色
+int               red    = myRGB.Color(255, 0, 0);  // 红色
+int               green  = myRGB.Color(0, 255, 0);  // 绿色
+int               blue   = myRGB.Color(0, 0, 255);  // 蓝色
+int               yellow = myRGB.Color(255, 40, 0); // 黄色
 
 /*----------------------------------------------- 电机 -----------------------------------------------*/
 
@@ -99,15 +98,16 @@ uint32_t          yellow = myRGB.Color(255, 80, 0); // 黄色
 void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
   // 如果发送成功
   if (status == ESP_NOW_SEND_SUCCESS) {
-    if (!esp_now_connected) esp_now_connected = true;
+    if (!sendSucceed) sendSucceed = true;
   } else {
-    esp_now_connected = false;
+    sendSucceed = false;
   }
 }
 
 // 收到消息后的回调
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
   memcpy(&footPad, incomingData, sizeof(footPad));
+  lastRecvTime = millis();
 }
 
 /**  蜂鸣器
@@ -127,14 +127,13 @@ void buzzer(uint8_t times, int duration, int interval) {
 }
 
 /**  指示灯
- * @brief     RGB通用函数
+ * @brief     适用于单个颜色闪烁
  * @param     times:    闪烁次数
  * @param     duration: 持续时间，单位毫秒
  * @param     interval: 每次闪烁的间隔时间，单位毫秒
  * @param     color:    颜色值
  */
-
-void rgbBlink(uint8_t times, int duration, int interval, uint32_t color) {
+void rgbBlink(int times, int duration, int interval, int color) {
   if (times == 1) interval = 0; // 如果只闪烁一次则不间隔
   for (int i = 0; i < times; i++) {
     myRGB.clear();
@@ -146,214 +145,266 @@ void rgbBlink(uint8_t times, int duration, int interval, uint32_t color) {
     vTaskDelay(interval / portTICK_PERIOD_MS);
   }
 }
+// 多色闪烁
+void mutipleColorBlink(int colors[], int colorNum, int duration, int interval) {
+  for (int i = 0; i < colorNum; i++) {
+    myRGB.clear();
+    myRGB.setPixelColor(0, colors[i]);
+    myRGB.show();
+    vTaskDelay(duration / portTICK_PERIOD_MS);
+    myRGB.clear();
+    myRGB.show();
+    vTaskDelay(interval / portTICK_PERIOD_MS);
+  }
+}
 
 // ESP NOW
 void esp_now_connect() {
-  WiFi.mode(WIFI_STA); // 设置wifi为STA模式
-  WiFi.begin();
+  int colors[] = { red, green, blue };
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
   if (esp_now_init() == ESP_OK) {
-    // 初始化成功
-    esp_now_register_send_cb(OnDataSent); // 注册发送成功的回调函数
-    esp_now_register_recv_cb(OnDataRecv); // 注册接受数据后的回调函数
+    esp_now_register_send_cb(OnDataSent);
+    esp_now_register_recv_cb(OnDataRecv);
     // 注册通信频道
-    memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
-    peerInfo.channel = 1;                          // 设置通信频道
-    esp_now_add_peer(&peerInfo);                   // 添加通信对象
-    // 指示灯提示
-    myRGB.clear();
-    myRGB.setPixelColor(0, red);
-    myRGB.show();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    myRGB.clear();
-    myRGB.setPixelColor(0, green);
-    myRGB.show();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    myRGB.clear();
-    myRGB.setPixelColor(0, blue);
-    myRGB.show();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    myRGB.clear();
+    memcpy(peerInfo.peer_addr, FootPadAddress, 6);
+    peerInfo.channel = 1;
+    // 主初始化错误检查
+    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+      buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+      esp_now_connected = false;
+      myRGB.clear();
+      myRGB.setPixelColor(0, red);
+      myRGB.show();
 #if DEBUG
-    Serial.println("esp now初始化函数：ESP NOW 初始化成功");
+      Serial.println("添加peer失败");
 #endif
-  } else {
-#if DEBUG
-    Serial.println("esp now初始化函数：ESP NOW 初始化失败，正在重试...");
-#endif
-    // 报警
-    myRGB.clear();
-    myRGB.setPixelColor(0, red);
-    myRGB.show();
-    // 尝试重试3次
-    bool reconnect_3_times = false;
-    while (!reconnect_3_times) {
-      for (int i = 0; i < 3; i++) {
+    } else {
+      // 测试连接
+      if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) == ESP_OK) {
+        esp_now_connected = true;
+        // 成功指示灯提示
+        mutipleColorBlink(colors, 3, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
         buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
 #if DEBUG
-        Serial.printf("esp now初始化函数：重试第 %d 次...\n", i + 1);
+        Serial.println("ESP NOW 初始化成功");
 #endif
-        esp_now_init();                                // 初始化ESP NOW
-        esp_now_register_send_cb(OnDataSent);          // 注册发送成功的回调函数
-        esp_now_register_recv_cb(OnDataRecv);          // 注册接受数据后的回调函数
-        memcpy(peerInfo.peer_addr, FootPadAddress, 6); // 设置配对设备的MAC地址并储存，参数为拷贝地址、拷贝对象、数据长度
-        peerInfo.channel = 1;                          // 设置通信频道
-        esp_now_add_peer(&peerInfo);                   // 添加通信对象
-        vTaskDelay(5000 / portTICK_PERIOD_MS);         // 延时5秒
-      }
-      // 如果3次重试都失败，则退出循环
-      reconnect_3_times = true;
-      esp_now_connected = false;
-#if DEBUG
-      Serial.println("esp now初始化函数：ESP NOW 重试失败");
-#endif
-    }
-  }
-}
-
-// 指示灯和提示音
-void BuzzerFlash(void* pt) {
-  while (1) {
-    // 只有当模式改变时才执行，也就意味着如果模式在一定时间内保持一致，以下代码只执行一次
-    if (currentMode != lastMode) { 
-      lastMode     = currentMode;
-      booster.mode = currentMode;
-      esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送模式数据给脚控
-      switch (currentMode) {
-      case HAND_MODE:
-        myRGB.setPixelColor(0, green);
-        buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
-        break;
-      case FOOT_MODE:
-        myRGB.setPixelColor(0, blue);
-        buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
-        break;
-      case CRUISE_MODE:
-        myRGB.setPixelColor(0, yellow);
-        buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
-        break;
-      case STANDBY_MODE:
-        myRGB.setBrightness(MAX_BRIGHTNESS); // 提高亮度以示区别
-        myRGB.setPixelColor(0, red);
-        buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL); // 三声短鸣
-        break;
-      default:
-        break;
-      }
-      myRGB.setBrightness(STANDARD_BRIGHTNESS); // 恢复标准亮度
-      myRGB.show();
-    } else {
-      vTaskDelay(50 / portTICK_PERIOD_MS); // 延时，避免CPU占用过高
-    }
-  }
-}
-
-// 模式切换
-void modeChange(void* pt) {
-  while (1) {
-    if (!esp_now_connected) {
-#if DEBUG
-      Serial.println("模式切换任务：ESP NOW 断线，进入待机模式");
-#endif
-      currentMode = STANDBY_MODE; // 如果断线，返回待机模式
-    } else {
-      int readHand_1 = digitalRead(ONHAND);
-      int readFoot_1 = digitalRead(ONFOOT);
-      vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
-      int readHand_2 = digitalRead(ONHAND);
-      int readFoot_2 = digitalRead(ONFOOT);
-      if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) { // 如果两次读取的值不一样，说明有抖动
-        currentMode = lastMode;                                   // 返回上次的模式
+        return; // 成功就直接返回，不需要重连逻辑，直接跳出整个函数
       } else {
-        if (readHand_1 == LOW && readFoot_1 == HIGH) {
-          currentMode = HAND_MODE; // 手控模式
-        } else if (readHand_1 == HIGH && readFoot_1 == LOW) {
-          currentMode = FOOT_MODE; // 脚控模式
-        } else if (readHand_1 == HIGH && readFoot_1 == HIGH) {
-          currentMode = CRUISE_MODE; // 巡航模式
-        } else {
-          currentMode = STANDBY_MODE; // 待机模式
-        }
+        esp_now_connected = false;
+        myRGB.clear();
+        myRGB.setPixelColor(0, red);
+        myRGB.show();
+        buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
       }
     }
+  } else {
+    esp_now_connected = false;
+  }
+  if (!esp_now_connected) {
 #if DEBUG
-    const char* modeNames[] = { "手动模式", "脚控模式", "巡航模式", "待机模式" };
-    Serial.print("模式切换任务：");
-    Serial.println(modeNames[currentMode]);
+    Serial.println("ESP NOW 初始化失败，正在重连...");
 #endif
-    vTaskDelay(30 / portTICK_PERIOD_MS); // 延时，避免CPU占用过高
+    // 尝试重连3次
+    bool reconnectSuccess = false;
+    for (int i = 0; i < 3; i++) {
+#if DEBUG
+      Serial.printf("重连第 %d 次...\n", i + 1);
+#endif
+      esp_now_init();
+      esp_now_register_send_cb(OnDataSent);
+      esp_now_register_recv_cb(OnDataRecv);
+      memcpy(peerInfo.peer_addr, FootPadAddress, 6);
+      peerInfo.channel = 1;
+      // 测试连接
+      if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) == ESP_OK) {
+        reconnectSuccess  = true;
+        esp_now_connected = true;
+        // 成功指示灯提示
+        mutipleColorBlink(colors, 3, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
+        buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
+#if DEBUG
+        Serial.printf("重连第 %d 次成功\n", i + 1);
+#endif
+        return; // 跳出for循环（可以理解为找到要找到的答案了）
+      } else {
+        reconnectSuccess = false;
+      }
+    }
+    if (!reconnectSuccess) {
+      esp_now_connected = false;
+      buzzer(5, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL); // 长时间错误提示
+#if DEBUG
+      Serial.println("ESP NOW 重连失败");
+#endif
+    }
   }
 }
-// 电推脚控
-void motor(void* pt) {
-  TickType_t       xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xPeriod       = pdMS_TO_TICKS(12.5); // 频率 80Hz → 周期为 1/80 = 0.0125 秒 = 12.5 毫秒
+
+// 消抖读取当前模式
+Mode readCurrentModeWithDebounce() {
+  int readHand_1 = digitalRead(ONHAND);
+  int readFoot_1 = digitalRead(ONFOOT);
+  vTaskDelay(SWITCH_DEBOUNCE_DELAY / portTICK_PERIOD_MS); // 延时20ms，消抖
+  int readHand_2 = digitalRead(ONHAND);
+  int readFoot_2 = digitalRead(ONFOOT);
+
+  if (readHand_1 != readHand_2 || readFoot_1 != readFoot_2) return lastMode; // 如果两次读取的值不一样，说明有抖动，返回上次的模式
+  if (readHand_1 == LOW && readFoot_1 == HIGH) return HAND_MODE;             // 手控模式
+  if (readHand_1 == HIGH && readFoot_1 == LOW) return FOOT_MODE;             // 脚控模式
+  if (readHand_1 == HIGH && readFoot_1 == HIGH) return CRUISE_MODE;          // 巡航模式
+
+  return HAND_MODE; // 默认返回手动模式
+}
+
+/** 模式切换
+ * @brief    模式切换相关硬件的操作
+ * @param    newMode: 切换到的新模式
+ */
+void modeChangeOperation(Mode newMode) {
+  myRGB.clear();
+  switch (newMode) {
+  case HAND_MODE:
+    myRGB.setPixelColor(0, green);
+    buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+    break;
+  case FOOT_MODE:
+    myRGB.setPixelColor(0, blue);
+    buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+    break;
+  case CRUISE_MODE:
+    myRGB.setPixelColor(0, yellow);
+    buzzer(1, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+    break;
+  case STANDBY_MODE:
+    myRGB.setPixelColor(0, red);
+    buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+    break;
+  default:
+    break;
+  }
+  myRGB.show();
+#if DEBUG
+  const char* modeNames[] = { "手动模式", "脚控模式", "巡航模式", "待机模式" };
+  Serial.print("模式切换函数：");
+  Serial.println(modeNames[newMode]);
+#endif
+}
+
+// esp now连接监测任务
+void esp_now_connection(void* pvParameter) {
   while (1) {
-    int  stepSpeed = map(footPad.stepSpeed, 0, 4095, 100, 400);
-    bool left      = footPad.stepData[0];
-    bool right     = footPad.stepData[1];
-    bool motor     = footPad.stepData[2];
-    bool reverse   = footPad.stepData[3]; // 反向
+    unsigned long currentTime = millis();
+    esp_now_connected         = (currentTime - lastRecvTime <= RECV_TIMEOUT);
+#if DEBUG
+    static unsigned long lastDebugTime = 0;
+    if (currentTime - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
+      if (esp_now_connected && sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 接收发送正常！");
+      } else if (esp_now_connected && !sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 接收成功，但发送异常！");
+      } else if (!esp_now_connected && sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 接收超时，但发送成功！");
+      } else if (!esp_now_connected && !sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 彻底断线！");
+      }
+      lastDebugTime = currentTime;
+    }
+#endif
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+  }
+}
+
+// 控制板使能
+void stepper_enable(void) {
+  digitalWrite(TMC2209_EN, LOW);
+  lastOperationTime = millis();
+}
+// 控制板禁用
+void stepper_disable(void) {
+  digitalWrite(TMC2209_EN, HIGH);
+}
+// 步进
+void stepper_pulse(int stepSpeed) {
+  digitalWrite(TMC2209_STEP, HIGH);
+  delayMicroseconds(stepSpeed);
+  digitalWrite(TMC2209_STEP, LOW);
+  delayMicroseconds(stepSpeed);
+}
+
+// 统一的步进电机控制函数
+void stepper_control(bool turnLeft, bool turnRight, bool dirReverse, int stepSpeed) {
+  if (!turnLeft && turnRight) {
+    // 右转
+    digitalWrite(TMC2209_DIRECTION, dirReverse ? LOW : HIGH);
+    stepper_enable();
+    stepper_pulse(stepSpeed);
+  } else if (turnLeft && !turnRight) {
+    // 左转
+    digitalWrite(TMC2209_DIRECTION, dirReverse ? HIGH : LOW);
+    stepper_enable();
+    stepper_pulse(stepSpeed);
+  }
+
+  // 自动休眠检查
+  if (millis() - lastOperationTime > AUTO_DISABLE_DELAY) {
+    stepper_disable();
+  }
+}
+
+// 模式更新和发送
+void modeChange(void* pvParameter) {
+  while (1) {
+    // 如果ESP NOW连接正常，则读取当前模式，否则返回待机模式
+    if (esp_now_connected) {
+      currentMode = readCurrentModeWithDebounce();
+    } else {
+      currentMode = STANDBY_MODE; // 如果断线，返回待机模式
+#if DEBUG
+      static unsigned long lastDebugTime = 0;
+      if (millis() - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
+        Serial.println("模式更新和发送：ESP NOW 断线，返回待机模式");
+        lastDebugTime = millis();
+      }
+#endif
+    }
+    // 如果当前模式和上次模式不一样，则更新模式和执行模式切换操作
+    if (currentMode != lastMode) {
+      booster.mode = currentMode; // 更新模式
+      modeChangeOperation(currentMode);
+      lastMode = currentMode;
+    }
+    esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送模式数据给脚控
+    vTaskDelay(25 / portTICK_PERIOD_MS);                               // 已有35ms的debounce时间，如果模式没有变化，则再延时5ms，将频率设定在25hz左右，避免CPU占用过高
+  }
+}
+
+// 电推脚控
+void motor(void* pvParameter) {
+  while (1) {
+    int  stepSpeed  = map(footPad.stepSpeed, 0, 4095, 4000, 1000);
+    bool turnLeft   = footPad.stepData[0];
+    bool turnRight  = footPad.stepData[1];
+    bool motor      = footPad.stepData[2];
+    bool dirReverse = footPad.stepData[3]; // 反向
 
     switch (currentMode) {
-    // 脚控模式,使能TMC2209，导通MOS管
-    case FOOT_MODE:
-      digitalWrite(TMC2209_EN, LOW);
-      digitalWrite(MOS_STEP, HIGH);
-      digitalWrite(THROTTLE, motor ? LOW : HIGH);             // 输入上拉，踩油门输出低电平
-      if (left == 0 && right == 1) {                          // 左转按钮按下
-        digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      }
-      if (left == 1 && right == 0) {                          // 右转按钮按下
-        digitalWrite(TMC2209_DIRCTION, reverse ? LOW : HIGH); // 反向为假，右转变左转，输出低电平，逆时针旋转。反之输出高电平，顺时针旋转
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      }
+    case FOOT_MODE: // 脚控模式
+      digitalWrite(THROTTLE, motor ? LOW : HIGH);
+      stepper_control(turnLeft, turnRight, dirReverse, stepSpeed);
       break;
-
-      // 巡航模式
-    case CRUISE_MODE:
-      digitalWrite(TMC2209_EN, LOW);
-      digitalWrite(MOS_STEP, HIGH);
+    case CRUISE_MODE: // 巡航模式
       digitalWrite(THROTTLE, HIGH);
-      if (left == 0 && right == 1) {                          // 左转按钮按下
-        digitalWrite(TMC2209_DIRCTION, reverse ? HIGH : LOW); // 反向为真，左转变右转，输出高电平，顺时针旋转。反之输出低电平，逆时针旋转
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      }
-      if (left == 1 && right == 0) {                          // 右转按钮按下
-        digitalWrite(TMC2209_DIRCTION, reverse ? LOW : HIGH); // 反向为假，右转变左转，输出低电平，逆时针旋转。反之输出高电平，顺时针旋转
-        digitalWrite(TMC2209_STEP, HIGH);
-        delayMicroseconds(stepSpeed);
-        digitalWrite(TMC2209_STEP, LOW);
-        delayMicroseconds(stepSpeed);
-      }
+      stepper_control(turnLeft, turnRight, dirReverse, stepSpeed);
       break;
-
-      // 手控模式
     case HAND_MODE:
-      digitalWrite(THROTTLE, HIGH);   // 电机常开
-      digitalWrite(TMC2209_EN, HIGH); // 关闭步进电机控制板
-      digitalWrite(MOS_STEP, LOW);    // 关闭步进电机电源
-      break;
+    case STANDBY_MODE: // 手控模式和待机模式
 
-    // 待机模式
-    case STANDBY_MODE:
-      digitalWrite(THROTTLE, HIGH);   // 电机常开
-      digitalWrite(TMC2209_EN, HIGH); // 关闭步进电机控制
-      digitalWrite(MOS_STEP, LOW);
-      break;
-    default:
+      digitalWrite(THROTTLE, HIGH);
+      stepper_disable();
       break;
     }
-    vTaskDelayUntil(&xLastWakeTime, xPeriod);
+    vTaskDelay(1); // 让出CPU时间
   }
 }
 
@@ -361,36 +412,68 @@ void motor(void* pt) {
 
 void setup() {
   Serial.begin(115200);
-
-  pinMode(ONFOOT, INPUT_PULLUP);
-  pinMode(ONHAND, INPUT_PULLUP);
+  pinMode(ONFOOT, INPUT);
+  pinMode(ONHAND, INPUT);
 
   pinMode(THROTTLE, OUTPUT);
   pinMode(BUZZER, OUTPUT);
-  pinMode(MOS_STEP, OUTPUT);
 
-  pinMode(TMC2209_DIRCTION, OUTPUT);
+  pinMode(TMC2209_DIRECTION, OUTPUT);
   pinMode(TMC2209_STEP, OUTPUT);
   pinMode(TMC2209_EN, OUTPUT);
+  pinMode(TMC2209_MS1, OUTPUT);
+  pinMode(TMC2209_MS2, OUTPUT);
+  pinMode(TMC2209_MS3, OUTPUT);
 
   pinMode(WS2812_PIN, OUTPUT);
 
   digitalWrite(THROTTLE, LOW);
-  digitalWrite(MOS_STEP, LOW);
   digitalWrite(TMC2209_EN, HIGH);
+
+  /*
+    MS1  MS2  MS3      步进模式
+     0   0   0          全步进
+     1   0   0          半步进
+     0   1   0          1/4微步
+     1   1   0          1/8微步
+     1   1   1          1/16微步
+  */
+  digitalWrite(TMC2209_MS1, 0); // 1微步
+  digitalWrite(TMC2209_MS2, 0); // 1微步
+  digitalWrite(TMC2209_MS3, 0); // 1微步
 
   myRGB.begin();
   myRGB.setBrightness(STANDARD_BRIGHTNESS);
   myRGB.clear();
   esp_now_connect();
+  lastMode = readCurrentModeWithDebounce();
+  modeChangeOperation(lastMode); // 上电时根据按键状态设置初始模式和灯光
 
-  xTaskCreate(BuzzerFlash, "BuzzerFlash", 1024 * 1, NULL, 1, NULL);
   xTaskCreate(modeChange, "modeChange", 1024 * 2, NULL, 1, NULL);
-  xTaskCreate(motor, "motor", 1024 * 3, NULL, 1, NULL);
+  xTaskCreate(motor, "motor", 1024 * 3, NULL, 2, NULL);
+  xTaskCreate(esp_now_connection, "esp_now_connection", 1024 * 1, NULL, 1, NULL);
 #if DEBUG
   Serial.println("setup:电推初始化完成");
 #endif
 }
 
 void loop() {
+#if DEBUG
+  if (esp_now_connected)
+    Serial.printf("模式：%d，左转：%d，右转：%d，电推：%d，反向：%d，步进电机转速：%d\n", currentMode, footPad.stepData[0], footPad.stepData[1], footPad.stepData[2], footPad.stepData[3], footPad.stepSpeed);
+  delay(500);
+#endif
+
+#if TEST
+  static bool isPrinted = false;
+  if (esp_now_connected && isPrinted) {
+    Serial.println("连接");
+    isPrinted = false;
+  }
+  if (!isPrinted && !esp_now_connected) {
+    Serial.println("掉线");
+    isPrinted = true;
+  }
+  delay(100);
+#endif
 }
