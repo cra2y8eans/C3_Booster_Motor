@@ -292,30 +292,6 @@ void modeChangeOperation(Mode newMode) {
 #endif
 }
 
-// esp now连接监测任务
-void esp_now_connection(void* pvParameter) {
-  while (1) {
-    unsigned long currentTime = millis();
-    esp_now_connected         = (currentTime - lastRecvTime <= RECV_TIMEOUT);
-#if DEBUG
-    static unsigned long lastDebugTime = 0;
-    if (currentTime - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
-      if (esp_now_connected && sendSucceed) {
-        Serial.println("连接检测任务：ESP NOW 接收发送正常！");
-      } else if (esp_now_connected && !sendSucceed) {
-        Serial.println("连接检测任务：ESP NOW 接收成功，但发送异常！");
-      } else if (!esp_now_connected && sendSucceed) {
-        Serial.println("连接检测任务：ESP NOW 接收超时，但发送成功！");
-      } else if (!esp_now_connected && !sendSucceed) {
-        Serial.println("连接检测任务：ESP NOW 彻底断线！");
-      }
-      lastDebugTime = currentTime;
-    }
-#endif
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-  }
-}
-
 // 步进
 void stepper_pulse(int stepSpeed) {
   digitalWrite(TMC2209_STEP, HIGH);
@@ -349,6 +325,30 @@ void stepper_control(bool turnLeft, bool turnRight, bool dirReverse, int stepSpe
 #endif
   } else {
     isSleeped = false;
+  }
+}
+
+// esp now连接监测任务
+void esp_now_connection(void* pvParameter) {
+  while (1) {
+    // unsigned long currentTime = millis();
+    esp_now_connected = (millis() - lastRecvTime <= RECV_TIMEOUT);
+#if DEBUG
+    static unsigned long lastDebugTime = 0;
+    if (currentTime - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
+      if (esp_now_connected && sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 接收发送正常！");
+      } else if (esp_now_connected && !sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 接收成功，但发送异常！");
+      } else if (!esp_now_connected && sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 接收超时，但发送成功！");
+      } else if (!esp_now_connected && !sendSucceed) {
+        Serial.println("连接检测任务：ESP NOW 彻底断线！");
+      }
+      lastDebugTime = currentTime;
+    }
+#endif
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
 }
 
