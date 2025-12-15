@@ -331,8 +331,8 @@ void stepper_control(bool turnLeft, bool turnRight, bool dirReverse, int stepSpe
 // esp now连接监测任务
 void esp_now_connection(void* pvParameter) {
   while (1) {
-    // unsigned long currentTime = millis();
-    esp_now_connected = (millis() - lastRecvTime <= RECV_TIMEOUT);
+    unsigned long currentTime = millis();
+    esp_now_connected         = (currentTime - lastRecvTime <= RECV_TIMEOUT);
 #if DEBUG
     static unsigned long lastDebugTime = 0;
     if (currentTime - lastDebugTime > 2000) { // 每2秒打印一次，避免刷屏
@@ -412,7 +412,7 @@ void motor(void* pvParameter) {
 void setup() {
   Serial.begin(115200);
   pinMode(ONFOOT, INPUT);
-  pinMode(ONHAND, INPUT);
+  pinMode(ONHAND, INPUT_PULLUP);
 
   pinMode(THROTTLE, OUTPUT);
   pinMode(BUZZER, OUTPUT);
