@@ -187,6 +187,8 @@ void esp_now_connect() {
     myRGB.show();
     buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
     return;
+  } else {
+    Serial.println("ESP NOW 初始化成功");
   }
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
@@ -201,10 +203,13 @@ void esp_now_connect() {
     myRGB.show();
     buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
     return;
+  } else {
+    Serial.println("ESP NOW 添加对等节点成功");
   }
-  if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) == ESP_OK) {
+  esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad));
+  if (sendSucceed) {
+    Serial.println("ESP NOW 初始化并发送测试数据成功");
     esp_now_connected = true;
-    sendSucceed       = true;
     mutipleColorBlink(colors, colorNum, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
     buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
   } else {
@@ -218,13 +223,13 @@ void esp_now_connect() {
       myRGB.clear();
       myRGB.show();
       vTaskDelay(500 / portTICK_PERIOD_MS);
-      if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) != ESP_OK) {
-        Serial.println(".");
+      esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad));
+      if (!sendSucceed) {
+        Serial.print(".");
         continue;
       }
       // 成功处理
       esp_now_connected = true;
-      sendSucceed       = true;
       mutipleColorBlink(colors, colorNum, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
       buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
       Serial.printf("第%d次重试成功\n", i + 1);
@@ -409,6 +414,8 @@ void motor(void* pvParameter) {
 
 void setup() {
   Serial.begin(115200);
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
+
   pinMode(ONFOOT, INPUT);
   pinMode(ONHAND, INPUT_PULLUP);
 
