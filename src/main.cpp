@@ -172,154 +172,71 @@ void mutipleColorBlink(int colors[], int colorNum, int duration, int interval) {
   }
 }
 
-/** ESP NOW 初始化
- * @brief     ESP NOW初始化函数
- * @return    返回值：0-连接和发送成功，1-初始化失败，2-添加peer失败，3-发送失败
- */
-uint8_t esp_now_initialization() {
+// ESP NOW 初始化
+void esp_now_connect() {
+  int colors[] = { red, green, blue };
+  int colorNum = 3;
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   if (esp_now_init() != ESP_OK) {
-    Serial.println("ESP-NOW初始化失败");
-    return 1;
+    Serial.println("ESP NOW 初始化失败");
+    esp_now_connected = false;
+    sendSucceed       = false;
+    myRGB.clear();
+    myRGB.setPixelColor(0, red);
+    myRGB.show();
+    buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+    return;
   }
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
   memcpy(peerInfo.peer_addr, FootPadAddress, 6);
   peerInfo.channel = 1;
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("添加ESP-NOW peer失败");
-    return 2;
-  }
-  if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) == ESP_OK) {
-    Serial.println("ESP-NOW发送成功");
-    return 0;
-  } else {
-    Serial.println("ESP-NOW发送失败");
-    return 3;
-  }
-}
-
-/** 重试发送函数
- * @brief     重试发送ESP-NOW数据
- * @param     colors: 闪烁颜色数组
- * @return    true-成功，false-失败
- */
-bool retry_esp_now_send(int colors[], int colorNum) {
-  for (int i = 0; i < 60; i++) {
-    // 状态指示：红灯闪烁表示正在尝试连接
+    Serial.println("ESP NOW 添加对等节点失败");
+    esp_now_connected = false;
+    sendSucceed       = false;
     myRGB.clear();
     myRGB.setPixelColor(0, red);
     myRGB.show();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    myRGB.clear();
-    myRGB.show();
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) == ESP_OK) {
+    buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
+    return;
+  }
+  if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) == ESP_OK) {
+    esp_now_connected = true;
+    sendSucceed       = true;
+    mutipleColorBlink(colors, colorNum, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
+    buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
+  } else {
+    Serial.println("ESP NOW 发送失败，正在重试...");
+    for (int i = 0; i < 60; i++) {
+      // 状态指示：红灯闪烁表示正在尝试连接
+      myRGB.clear();
+      myRGB.setPixelColor(0, red);
+      myRGB.show();
+      vTaskDelay(500 / portTICK_PERIOD_MS);
+      myRGB.clear();
+      myRGB.show();
+      vTaskDelay(500 / portTICK_PERIOD_MS);
+      if (esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad)) != ESP_OK) {
+        Serial.println(".");
+        continue;
+      }
       // 成功处理
       esp_now_connected = true;
       sendSucceed       = true;
       mutipleColorBlink(colors, colorNum, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
       buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
       Serial.printf("第%d次重试成功\n", i + 1);
-      return true;
+      return;
     }
-  }
-  // 所有重试都失败
-  esp_now_connected = false;
-  sendSucceed       = false;
-  buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
-  Serial.println("所有重试都失败，连接建立失败");
-  return false;
-}
-
-/** 重试添加peer函数
- * @brief     重试添加ESP-NOW对等节点
- * @return    true-成功，false-失败
- */
-bool retry_add_peer() {
-  Serial.println("开始重试添加peer...");
-  for (int i = 0; i < 60; i++) {
-    if (esp_now_add_peer(&peerInfo) == ESP_OK) {
-      Serial.println("\n重新添加peer成功");
-      return true;
-    }
-    vTaskDelay(50 / portTICK_PERIOD_MS);
-    Serial.print(".");
-  }
-  Serial.println("\n重试添加peer失败");
-  return false;
-}
-
-/** 重试初始化函数
- * @brief     重试初始化ESP-NOW
- * @return    true-成功，false-失败
- */
-bool retry_esp_now_init() {
-  Serial.println("开始重试ESP-NOW初始化...");
-  for (int i = 0; i < 60; i++) {
-    if (esp_now_init() == ESP_OK) {
-      // 重新注册回调函数
-      esp_now_register_send_cb(OnDataSent);
-      esp_now_register_recv_cb(OnDataRecv);
-      // 重新配置peer信息
-      memcpy(peerInfo.peer_addr, FootPadAddress, 6);
-      peerInfo.channel = 1;
-      Serial.println("\nESP-NOW重新初始化成功");
-      return true;
-    }
-    vTaskDelay(50 / portTICK_PERIOD_MS);
-    Serial.print(".");
-  }
-  Serial.println("\n重试初始化失败");
-  return false;
-}
-
-// ESP NOW连接函数
-void esp_now_connect() {
-  int     colors[] = { red, green, blue };
-  int     colorNum = 3;
-  uint8_t result   = esp_now_initialization();
-  switch (result) {
-  case 0: // 初始化成功
-    esp_now_connected = true;
-    sendSucceed       = true;
-    mutipleColorBlink(colors, colorNum, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
-    buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
-    Serial.println("ESP-NOW连接成功");
-    break;
-  case 1: // 初始化失败
-    if (retry_esp_now_init()) {
-      // 初始化成功后添加peer
-      if (esp_now_add_peer(&peerInfo) == ESP_OK) {
-        // 发送测试数据
-        retry_esp_now_send(colors, colorNum);
-      } else {
-        Serial.println("重试后添加peer仍失败");
-        esp_now_connected = false;
-        buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
-      }
-    } else {
-      // 初始化重试失败
-      esp_now_connected = false;
-      buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
-    }
-    break;
-  case 2: // 添加peer失败
-    if (retry_add_peer()) {
-      // 添加peer成功后发送测试数据
-      retry_esp_now_send(colors, colorNum);
-    } else {
-      // 添加peer重试失败
-      esp_now_connected = false;
-      buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
-    }
-    break;
-  case 3: // 发送失败
-    retry_esp_now_send(colors, colorNum);
-    break;
-  default:
-    break;
+    Serial.println("ESP NOW 发送失败，重试次数已达上限");
+    esp_now_connected = false;
+    sendSucceed       = false;
+    myRGB.clear();
+    myRGB.setPixelColor(0, red);
+    myRGB.show();
+    buzzer(3, SHORT_BEEP_DURATION, SHORT_BEEP_INTERVAL);
   }
 }
 
