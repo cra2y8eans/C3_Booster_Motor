@@ -52,7 +52,7 @@ struct FootPad {
 };
 FootPad footPad;
 
-volatile bool esp_now_connected, sendSucceed;
+volatile bool esp_now_connected, sendSucceed, recvSucceed;
 unsigned long lastRecvTime = 0;
 #define RECV_TIMEOUT 500 // 接收超时时间，单位毫秒
 
@@ -122,6 +122,7 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
   memcpy(&footPad, incomingData, sizeof(footPad));
   lastRecvTime = millis();
+  if (!recvSucceed) recvSucceed = true;
 }
 
 /**  蜂鸣器
@@ -181,7 +182,6 @@ void esp_now_connect() {
   if (esp_now_init() != ESP_OK) {
     Serial.println("ESP NOW 初始化失败");
     esp_now_connected = false;
-    sendSucceed       = false;
     myRGB.clear();
     myRGB.setPixelColor(0, red);
     myRGB.show();
@@ -197,7 +197,6 @@ void esp_now_connect() {
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
     Serial.println("ESP NOW 添加对等节点失败");
     esp_now_connected = false;
-    sendSucceed       = false;
     myRGB.clear();
     myRGB.setPixelColor(0, red);
     myRGB.show();
@@ -207,8 +206,8 @@ void esp_now_connect() {
     Serial.println("ESP NOW 添加对等节点成功");
   }
   esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad));
-  if (sendSucceed) {
-    Serial.println("ESP NOW 初始化并发送测试数据成功");
+  if (sendSucceed && recvSucceed) {
+    Serial.println("ESP NOW 初始化，发送测试数据并接收成功");
     esp_now_connected = true;
     mutipleColorBlink(colors, colorNum, LONG_FLASH_DURATION, LONG_FLASH_INTERVAL);
     buzzer(1, LONG_BEEP_DURATION, LONG_BEEP_INTERVAL);
@@ -224,7 +223,7 @@ void esp_now_connect() {
       myRGB.show();
       vTaskDelay(500 / portTICK_PERIOD_MS);
       esp_now_send(FootPadAddress, (uint8_t*)&footPad, sizeof(footPad));
-      if (!sendSucceed) {
+      if (!sendSucceed || !recvSucceed) {
         Serial.print(".");
         continue;
       }
@@ -238,6 +237,7 @@ void esp_now_connect() {
     Serial.println("ESP NOW 发送失败，重试次数已达上限");
     esp_now_connected = false;
     sendSucceed       = false;
+    recvSucceed       = false;
     myRGB.clear();
     myRGB.setPixelColor(0, red);
     myRGB.show();
