@@ -333,6 +333,8 @@ void stepper_control(bool turnLeft, bool turnRight, bool dirReverse, int stepSpe
 
 // esp now连接监测任务
 void esp_now_connection(void* pvParameter) {
+  TickType_t       xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xPeriod       = pdMS_TO_TICKS(1000); // 单位ms，数据检测频率为1Hz。换算为频率： 1Hz → 周期为 1000ms/1000ms = 1 次/秒
   while (1) {
     unsigned long currentTime = millis();
     esp_now_connected         = (currentTime - lastRecvTime <= RECV_TIMEOUT);
@@ -351,7 +353,7 @@ void esp_now_connection(void* pvParameter) {
       lastDebugTime = currentTime;
     }
 #endif
-    vTaskDelay(100 / portTICK_PERIOD_MS);
+    vTaskDelayUntil(&xLastWakeTime, xPeriod);
   }
 }
 
