@@ -328,6 +328,7 @@ void stepper_control(bool turnLeft, bool turnRight, bool dirReverse, int stepSpe
 #endif
   } else {
     isSleeped = false;
+    digitalWrite(TMC2209_EN, LOW);
   }
 }
 
@@ -353,15 +354,6 @@ void esp_now_connection(void* pvParameter) {
       lastDebugTime = currentTime;
     }
 #endif
-
-    // 栈使用情况监控
-    UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-    static unsigned long lastStackCheck = 0;
-    if (currentTime - lastStackCheck > 5000) { // 每5秒检查一次
-      Serial.printf("esp_now_connection 栈剩余: %u 字节\n", stackHighWaterMark);
-      lastStackCheck = currentTime;
-    }
-
     vTaskDelayUntil(&xLastWakeTime, xPeriod);
   }
 }
@@ -390,15 +382,6 @@ void modeChange(void* pvParameter) {
     }
     esp_now_send(FootPadAddress, (uint8_t*)&booster, sizeof(booster)); // 发送模式数据给脚控
     vTaskDelay(25 / portTICK_PERIOD_MS);                               // 已有35ms的debounce时间，如果模式没有变化，则再延时5ms，将频率设定在25hz左右，避免CPU占用过高
-
-    // 栈使用情况监控
-    static unsigned long lastStackCheck = 0;
-    unsigned long currentTime = millis();
-    if (currentTime - lastStackCheck > 5000) { // 每5秒检查一次
-      UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-      Serial.printf("modeChange 栈剩余: %u 字节\n", stackHighWaterMark);
-      lastStackCheck = currentTime;
-    }
   }
 }
 
@@ -427,15 +410,6 @@ void motor(void* pvParameter) {
       break;
     }
     vTaskDelay(1); // 让出CPU时间
-
-    // 栈使用情况监控
-    static unsigned long lastStackCheck = 0;
-    unsigned long currentTime = millis();
-    if (currentTime - lastStackCheck > 5000) { // 每5秒检查一次
-      UBaseType_t stackHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
-      Serial.printf("motor 栈剩余: %u 字节\n", stackHighWaterMark);
-      lastStackCheck = currentTime;
-    }
   }
 }
 
@@ -444,14 +418,6 @@ void motor(void* pvParameter) {
 void setup() {
   Serial.begin(115200);
   vTaskDelay(1000 / portTICK_PERIOD_MS);
-
-  // 启用栈溢出检测
-  #if DEBUG
-  vTaskSetStackOverflowHook([](TaskHandle_t xTask, char *pcTaskName) {
-    Serial.printf("栈溢出检测: 任务 %s 发生栈溢出!\n", pcTaskName);
-    // 可以在这里添加重启或报警逻辑
-  });
-  #endif
 
   pinMode(ONFOOT, INPUT);
   pinMode(ONHAND, INPUT_PULLUP);
@@ -490,9 +456,9 @@ void setup() {
   lastMode = readCurrentModeWithDebounce();
   modeChangeOperation(lastMode); // 上电时根据按键状态设置初始模式和灯光
 
-  xTaskCreate(modeChange, "modeChange", 1024 * 2, NULL, 1, NULL);
-  xTaskCreate(motor, "motor", 1024 * 3, NULL, 2, NULL);
-  xTaskCreate(esp_now_connection, "esp_now_connection", 1024 * 1, NULL, 1, NULL);
+  xTaskCreate(modeChange, "modeChange", 1024 * 4, NULL, 1, NULL);
+  xTaskCreate(motor, "motor", 1024 * 6, NULL, 1, NULL);
+  xTaskCreate(esp_now_connection, "esp_now_connection", 1024 * 4, NULL, 1, NULL);
 #if DEBUG
   Serial.println("setup:电推初始化完成");
 #endif
