@@ -328,6 +328,7 @@ void stepper_control(bool turnLeft, bool turnRight, bool dirReverse, int stepSpe
 #endif
   } else {
     isSleeped = false;
+    digitalWrite(TMC2209_EN, LOW);
   }
 }
 
